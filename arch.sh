@@ -17,13 +17,35 @@ to_human() {
     }'
 }
 
+object_type() {
+	if [[ ! -e "$1" && ! -L "$1" ]]; then
+		echo "nonexistent"
+	elif [[ -L "$1" ]]; then
+		echo "symlink"
+	elif [[ -d "$1" ]]; then
+		echo "directory"
+	elif [[ -f "$1" ]]; then
+		echo "file"
+	elif [[ -S "$1" ]]; then
+		echo "socket"
+	elif [[ -p "$1" ]]; then
+		echo "named pipe"
+	elif [[ -b "$1" ]]; then
+		echo "block device"
+	elif [[ -c "$1" ]]; then
+		echo "character device"
+	else
+		echo "unknown"
+	fi
+}
+
 show_help() {
   cat << 'EOF'
 NAME
 	arch.sh — archive or unarchive .tar.7z files
 
 SYNOPSIS
-	arch.sh [-a | -u] [-d destination] input_path
+	arch.sh [-a | -u] [-o destination] input_path
 	arch.sh -h | --help
 
 DESCRIPTION
@@ -47,7 +69,7 @@ OPTIONS
 	-u, --unarchive
 		Unarchive input_path, which must be a .tar.7z file.
 
-	-d destination, --destination destination
+	-o destination, --output destination
 		Specify the destination directory.
 
 		When archiving, the resulting .tar.7z file is written
@@ -74,13 +96,13 @@ EXAMPLES
 		arch.sh -a MyFolder
 
 	Archive a file to a specific directory:
-		arch.sh --archive file.txt --destination ~/Archives
+		arch.sh --archive file.txt --output ~/Archives
 
 	Unarchive into the current directory:
 		arch.sh -u backup.tar.7z
 
 	Unarchive into a specific directory:
-		arch.sh -u backup.tar.7z -d ./output
+		arch.sh -u backup.tar.7z -o ./output
 
 EOF
 }
@@ -120,7 +142,7 @@ while (( $# > 0 )); do
 				exit 1
 			fi
 			;;
-		-d|--destination)
+		-o|--output)
             if [[ $DESTINATION_SPECIFIED == "false" ]]; then
                 if (( $# > 1 )); then
                     # Store next argument (destination path)
@@ -130,11 +152,11 @@ while (( $# > 0 )); do
 					# Flag destination as specified
                     DESTINATION_SPECIFIED="true"
                 else
-                    echo "No destination specified for -d/--destination option. Exiting."
+                    echo "No destination specified for -o/--output option. Exiting."
                     exit 1
 				fi
 			else
-				echo "-d/--destination option specified multiple times. Exiting."
+				echo "-o/--output option specified multiple times. Exiting."
 			fi
 			;;
 		*)
@@ -189,11 +211,33 @@ SOURCE_SIZE=$(du -sh "$SOURCE_PATH" | cut -f1)
 SOURCE_SIZE_BYTE=$(du -sk "$SOURCE_PATH" | awk '{print $1 * 1024}')
 tput cr && tput el
 printf "\rSource Size:\t$SOURCE_SIZE / $SOURCE_SIZE_BYTE bytes\n"
+if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
+	DESTINATION_TYPE="$(object_type $DESTINATION_PATH)"
+	if [[ $DESTINATION_TYPE == "file" ]]; then
+		echo "Warning: ${DESTINATION_PATH:t} exists and will be overwritten."
+	else
+		echo "Warning: ${DESTINATION_PATH:t} exists and is not a file ($DESTINATION_TYPE). Exiting."
+		exit 1
+	fi
+fi
+if [[ -e $DESTINATION_PATH && $OPERATION == "unarchive" ]]; then
+	DESTINATION_TYPE="$(object_type $DESTINATION_PATH)"
+	if [[ $DESTINATION_TYPE != "folder" ]]; then
+		echo "Warning: ${DESTINATION_PATH:t} exists and is not a folder ($DESTINATION_TYPE). Exiting."
+		exit 1
+	fi
+fi
+
 read "?Confirm with 'y': " CONFIRMATION
 [[ $CONFIRMATION == "y" ]] || {
     echo "Exiting."
     exit 1
 }
+if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
+	printf "Deleting pre-existing ${DESTINATION_PATH:t}..."
+	rm $DESTINATION_PATH
+	tput cr && tput el
+fi
 mkdir -p "${DESTINATION_DIR:a}"
 # Record start time (epoch seconds)
 START_EPOCH=$(date +%s)
