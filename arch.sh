@@ -136,6 +136,11 @@ OPTIONS
 	-y, --yes
 		Skip user confirmation, live fast and dangerous.
 
+	-d size, --dictionary size
+		Set a custom dictionary size (in MB) for compression.
+		
+		If not specified, a dictionary size of 256MB will be used.
+
 	-o destination, --output destination
 		Specify the destination directory.
 
@@ -161,6 +166,10 @@ NOTES
 EXAMPLES
 	Archive a folder into the current directory:
 		arch.sh -a MyFolder
+		
+	Archive a file into the current directory with a custom compression
+	dictionary size of 128MB:
+		arch.sh -a MyFile.txt -d 128
 
 	Archive a file to a specific directory:
 		arch.sh --archive file.txt --output ~/Archives
@@ -185,6 +194,8 @@ OPERATION="none"
 SOURCE_SPECIFIED="false"
 DESTINATION_SPECIFIED="false"
 CONFIRMATION_NEEDED="true"
+DICTIONARY_SIZE=256
+DICTIONARY_SIZE_SPECIFIED="false"
 
 while (( $# > 0 )); do
     ARG="$1"
@@ -212,6 +223,23 @@ while (( $# > 0 )); do
 			;;
 		-y|--yes)
 			CONFIRMATION_NEEDED="false"
+			;;
+		-d|--dictionary)
+            if [[ $DICTIONARY_SIZE_SPECIFIED == "false" ]]; then
+                if (( $# > 1 )); then
+                    # Store next argument (dictionary size)
+					DICTIONARY_SIZE="$2"
+                    # Skip the next argument in the next iteration
+                    shift
+					# Flag dictionary size as specified
+					DICTIONARY_SIZE_SPECIFIED="true"
+                else
+                    echo "No dictionary size specified for -o/--output option. Exiting."
+                    exit 1
+				fi
+			else
+				echo "-d/--dictionary option specified multiple times. Exiting."
+			fi
 			;;
 		-o|--output)
             if [[ $DESTINATION_SPECIFIED == "false" ]]; then
@@ -270,6 +298,9 @@ else
 	echo "Unarchive ${SOURCE_PATH:t}"
 fi
 tput sgr0
+if [[ $DICTIONARY_SIZE_SPECIFIED == "true" ]]; then
+	printf "Dictionary:\t%dm \n" $DICTIONARY_SIZE
+fi
 printf "Source:\t\t%s\n" "$SOURCE_PATH"
 if [[ $OPERATION == "archive" ]]; then
 	DESTINATION_PATH="${DESTINATION_DIR:a}/${SOURCE_PATH:t}.tar.7z"
@@ -317,8 +348,7 @@ mkdir -p "${DESTINATION_DIR:a}"
 START_EPOCH=$(date +%s)
 
 if [[ $OPERATION == "archive" ]]; then
-	tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null | 7zz a -t7z -si -mx=9 -m0=lzma2 -md=256m -mmt=on -bso0 -bsp1 "$DESTINATION_PATH"
-	#if ! check_pipeline_tar_7zz "${pipestatus[@]}"; then
+	tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null | 7zz a -t7z -si -mx=9 -m0=lzma2 -md="$DICTIONARY_SIZE"m -mmt=on -bso0 -bsp1 "$DESTINATION_PATH"
 	if ! check_pipeline_tar_7zz "${pipestatus[@]}"; then
 		echo "Exiting."
 		exit 1
@@ -328,7 +358,7 @@ else
 	printf "Decompressing..."
 	
 	7zz x -so "$SOURCE_PATH" | tar --acls --xattrs -C "$DESTINATION_PATH" -xf -
-	if ! check_pipeline_7zz_tar 1 2; then
+	if ! check_pipeline_7zz_tar "${pipestatus[@]}"; then
 		echo "Exiting."
 		return 1
 	fi
