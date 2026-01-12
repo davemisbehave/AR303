@@ -85,6 +85,13 @@ EXAMPLES
 EOF
 }
 
+# Ensure 7zz exists
+if ! command -v 7zz >/dev/null 2>&1; then
+	tput bold; echo "7zz not installed."; tput sgr0
+	echo "Install with: brew install p7zip"
+	exit 1
+fi
+
 OPERATION="none"
 SOURCE_SPECIFIED="false"
 DESTINATION_SPECIFIED="false"
