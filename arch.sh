@@ -108,11 +108,13 @@ if [[ $DESTINATION_SPECIFIED == "false" ]]; then
 fi
 
 DESTINATION_DIR=${DESTINATION_DIR:a}
+tput bold
 if [[ $OPERATION == "archive" ]]; then
 	echo "Archive ${SOURCE_PATH:t}"
 else
 	echo "Unarchive ${SOURCE_PATH:t}"
 fi
+tput sgr0
 printf "Source:\t\t%s\n" "$SOURCE_PATH"
 if [[ $OPERATION == "archive" ]]; then
 	DESTINATION_PATH="${DESTINATION_DIR:a}/${SOURCE_PATH:t}.tar.7z"
@@ -131,8 +133,10 @@ read "?Confirm with 'y': " CONFIRMATION
     exit 1
 }
 mkdir -p "${DESTINATION_DIR:a}"
+# Record start time (epoch seconds)
+START_EPOCH=$(date +%s)
 if [[ $OPERATION == "archive" ]]; then
-	tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null | 7zz a -t7z -si -mx=9 -m0=lzma2 -md=256m -mmt=on -bsp1 "$DESTINATION_PATH"
+	tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null | 7zz a -t7z -si -mx=9 -m0=lzma2 -md=256m -mmt=on -bso0 -bsp1 "$DESTINATION_PATH"
 	printf "Determining archive size..."
 else
 	printf "Decompressing..."
@@ -147,12 +151,35 @@ tput cr && tput el
 if [[ $OPERATION == "archive" ]]; then
 	printf "\rArchive Size:\t"
 else
-	printf "\rDestination Size:\t"
+	printf "\rDestin. Size:\t"
 fi
 printf "$DESTINATION_SIZE / $DESTINATION_SIZE_BYTE bytes (%.1f%%)\n" "$PERCENTAGE"
 SIZE_DIFFERENCE_BYTE=$(( DESTINATION_SIZE_BYTE - SOURCE_SIZE_BYTE ))
 SIZE_DIFFERENCE=$(to_human $SIZE_DIFFERENCE_BYTE)
 
 printf "Difference:\t$SIZE_DIFFERENCE / $SIZE_DIFFERENCE_BYTE bytes\n"
+
+# Record end time (epoch seconds)
+END_EPOCH=$(date +%s)
+
+# Calculate elapsed time
+ELAPSED=$((END_EPOCH - START_EPOCH))
+DAYS=$((ELAPSED / 86400))
+REMAINDER=$((ELAPSED % 86400))
+HOURS=$((REMAINDER / 3600))
+REMAINDER=$((REMAINDER % 3600))
+MINUTES=$((REMAINDER / 60))
+SECONDS=$((REMAINDER % 60))
+
+# Print formatted duration
+if (( DAYS > 0 )); then
+	printf "Elapsed time:\t${DAYS}d ${HOURS}h ${MINUTES}m ${SECONDS}s\n"
+elif (( HOURS > 0 )); then
+	printf "Elapsed time:\t${HOURS}h ${MINUTES}m ${SECONDS}s\n"
+elif (( MINUTES > 0 )); then
+	printf "Elapsed time:\t${MINUTES}m ${SECONDS}s\n"
+else
+	printf "Elapsed time:\t${SECONDS}s\n"
+fi
 
 echo "klolthxbye"
