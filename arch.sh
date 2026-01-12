@@ -17,6 +17,11 @@ to_human() {
     }'
 }
 
+get_size() {
+	local OBJECT_SIZE=$(du -sk "$1" | awk '{print $1 * 1024}')
+	echo "$OBJECT_SIZE"
+}
+
 object_type() {
 	if [[ ! -e "$1" && ! -L "$1" ]]; then
 		echo "nonexistent"
@@ -37,6 +42,65 @@ object_type() {
 	else
 		echo "unknown"
 	fi
+}
+
+check_7zz() {
+	# Specific logic for 7zz
+	if [[ $1 -eq 2 ]]; then
+		echo "Fatal error (check disk space or file permissions)"
+	elif [[ $1 -eq 8 ]]; then
+		echo "Not enough memory"
+	elif [[ $1 -eq 255 ]]; then
+		echo "User stopped the process"
+	else
+		echo "Unknown"
+	fi
+}
+
+check_tar() {
+	# Specific logic for 7zz
+	if [[ $1 -eq 1 ]]; then
+		echo "Warning (some files differ, were busy, or couldn't be read, but the archive was still created)"
+	elif [[ $1 -eq 2 ]]; then
+		echo "Fatal Error (e.g., directory not found, disk full)"
+	else
+		echo "Unknown"
+	fi
+}
+
+# Usage: check_pipeline "${pipestatus[@]}"
+check_pipeline_tar_7zz() {
+    local STATUSES=("$@")
+    local EXIT_CODE=0
+
+	if [[ ${STATUSES[1]} -ne 0 ]]; then
+		printf "\rError: Command tar in pipeline failed with exit code ${STATUSES[1]}: $(check_tar ${STATUSES[1]})\n"
+		EXIT_CODE=1
+	fi
+
+	if [[ ${STATUSES[2]} -ne 0 ]]; then
+		printf "\rError: Command 7zz in pipeline failed with exit code ${STATUSES[2]}: $(check_7zz ${STATUSES[2]})\n"
+		EXIT_CODE=1
+	fi
+
+    return $EXIT_CODE
+}
+
+check_pipeline_7zz_tar() {
+    local STATUSES=("$@")
+    local EXIT_CODE=0
+
+	if [[ ${STATUSES[1]} -ne 0 ]]; then
+		echo "Error: Command 7zz in pipeline failed with exit code ${STATUSES[1]}: $(check_7zz ${STATUSES[1]})\n"
+		EXIT_CODE=1
+	fi
+
+	if [[ ${STATUSES[2]} -ne 0 ]]; then
+		echo "Error: Command tar in pipeline failed with exit code ${STATUSES[2]}: $(check_tar ${STATUSES[2]})\n"
+		EXIT_CODE=1
+	fi
+
+    return $EXIT_CODE
 }
 
 show_help() {
@@ -214,8 +278,8 @@ else
 fi
 printf "Destination:\t%s\n" "$DESTINATION_PATH"
 printf "Determining Source Size..."
-SOURCE_SIZE=$(du -sh "$SOURCE_PATH" | cut -f1)
-SOURCE_SIZE_BYTE=$(du -sk "$SOURCE_PATH" | awk '{print $1 * 1024}')
+SOURCE_SIZE_BYTE=$(get_size $SOURCE_PATH)
+SOURCE_SIZE=$(to_human $SOURCE_SIZE_BYTE)
 tput cr && tput el
 printf "\rSource Size:\t$SOURCE_SIZE / $SOURCE_SIZE_BYTE bytes\n"
 if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
@@ -229,7 +293,7 @@ if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
 fi
 if [[ -e $DESTINATION_PATH && $OPERATION == "unarchive" ]]; then
 	DESTINATION_TYPE="$(object_type $DESTINATION_PATH)"
-	if [[ $DESTINATION_TYPE != "folder" ]]; then
+	if [[ $DESTINATION_TYPE != "directory" ]]; then
 		echo "Warning: ${DESTINATION_PATH:t} exists and is not a folder ($DESTINATION_TYPE). Exiting."
 		exit 1
 	fi
@@ -251,16 +315,27 @@ fi
 mkdir -p "${DESTINATION_DIR:a}"
 # Record start time (epoch seconds)
 START_EPOCH=$(date +%s)
+
 if [[ $OPERATION == "archive" ]]; then
 	tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null | 7zz a -t7z -si -mx=9 -m0=lzma2 -md=256m -mmt=on -bso0 -bsp1 "$DESTINATION_PATH"
+	#if ! check_pipeline_tar_7zz "${pipestatus[@]}"; then
+	if ! check_pipeline_tar_7zz "${pipestatus[@]}"; then
+		echo "Exiting."
+		exit 1
+	fi
 	printf "Determining archive size..."
 else
 	printf "Decompressing..."
+	
 	7zz x -so "$SOURCE_PATH" | tar --acls --xattrs -C "$DESTINATION_PATH" -xf -
-	tput cr && tput el
+	if ! check_pipeline_7zz_tar 1 2; then
+		echo "Exiting."
+		return 1
+	fi
 	printf "Determining destination size..."
 fi
-DESTINATION_SIZE_BYTE=$(du -sk "$DESTINATION_PATH" | awk '{print $1 * 1024}')
+
+DESTINATION_SIZE_BYTE=$(get_size $DESTINATION_PATH)
 DESTINATION_SIZE=$(to_human $DESTINATION_SIZE_BYTE)
 PERCENTAGE=$(( (DESTINATION_SIZE_BYTE * 100.0) / SOURCE_SIZE_BYTE ))
 tput cr && tput el
