@@ -68,6 +68,9 @@ OPTIONS
 
 	-u, --unarchive
 		Unarchive input_path, which must be a .tar.7z file.
+		
+	-y, --yes
+		Skip user confirmation, live fast and dangerous.
 
 	-o destination, --output destination
 		Specify the destination directory.
@@ -117,6 +120,7 @@ fi
 OPERATION="none"
 SOURCE_SPECIFIED="false"
 DESTINATION_SPECIFIED="false"
+CONFIRMATION_NEEDED="true"
 
 while (( $# > 0 )); do
     ARG="$1"
@@ -141,6 +145,9 @@ while (( $# > 0 )); do
 				echo "-a/--archive and -u/--unarchive options both selected. Exiting."
 				exit 1
 			fi
+			;;
+		-y|--yes)
+			CONFIRMATION_NEEDED="false"
 			;;
 		-o|--output)
             if [[ $DESTINATION_SPECIFIED == "false" ]]; then
@@ -228,11 +235,14 @@ if [[ -e $DESTINATION_PATH && $OPERATION == "unarchive" ]]; then
 	fi
 fi
 
-read "?Confirm with 'y': " CONFIRMATION
-[[ $CONFIRMATION == "y" ]] || {
-    echo "Exiting."
-    exit 1
-}
+if [[ $CONFIRMATION_NEEDED == "true" ]]; then
+	read "?Confirm with 'y': " CONFIRMATION
+	[[ $CONFIRMATION == "y" ]] || {
+		echo "Exiting."
+		exit 1
+	}
+fi
+
 if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
 	printf "Deleting pre-existing ${DESTINATION_PATH:t}..."
 	rm $DESTINATION_PATH
