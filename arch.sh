@@ -17,6 +17,74 @@ to_human() {
     }'
 }
 
+show_help() {
+  cat << 'EOF'
+NAME
+	arch.sh — archive or unarchive .tar.7z files
+
+SYNOPSIS
+	arch.sh [-a | -u] [-d destination] input_path
+	arch.sh -h | --help
+
+DESCRIPTION
+	arch.sh archives or unarchives files using tar and 7-Zip
+	piped together, avoiding the creation of intermediate .tar
+	files.
+
+	The input_path specifies either the file, folder, or package
+	to be archived, or the .tar.7z archive to be unarchived.
+
+	Options may be specified in any order.
+
+OPTIONS
+	-h, --help
+		Display this help and exit. All other arguments
+		are ignored.
+
+	-a, --archive
+		Archive input_path into a .tar.7z file.
+
+	-u, --unarchive
+		Unarchive input_path, which must be a .tar.7z file.
+
+	-d destination, --destination destination
+		Specify the destination directory.
+
+		When archiving, the resulting .tar.7z file is written
+		to this directory.
+
+		When unarchiving, the archive contents are extracted
+		into this directory.
+
+		If not specified, the current working directory is used.
+
+OPERANDS
+	input_path
+		Path to the file, folder, or package to archive, or
+		the .tar.7z file to unarchive.
+
+NOTES
+	Exactly one of a/--archive or -u/--unarchive must be specified.
+
+	The destination directory is optional and defaults to the
+	current working directory.
+
+EXAMPLES
+	Archive a folder into the current directory:
+		arch.sh -a MyFolder
+
+	Archive a file to a specific directory:
+		arch.sh --archive file.txt --destination ~/Archives
+
+	Unarchive into the current directory:
+		arch.sh -u backup.tar.7z
+
+	Unarchive into a specific directory:
+		arch.sh -u backup.tar.7z -d ./output
+
+EOF
+}
+
 OPERATION="none"
 SOURCE_SPECIFIED="false"
 DESTINATION_SPECIFIED="false"
@@ -26,21 +94,8 @@ while (( $# > 0 )); do
 
     case $ARG in
 		-h|--help)
-			tput bold; echo "Usage:"; tput sgr0
-			echo '\t'"$0 [-h|--help] [-a|--archive || -u/--unarchive] [-d|--destination <destination>]"
-            
-            tput bold; echo '\n'"Description:"; tput sgr0
-			echo '\t'"This script archives and compresses, or unarchives and decompresses files and folders using tar and 7zip."
-
-			tput bold; echo '\n'"Options:"; tput sgr0
-			echo '\t'"[-h  | --help]		Show this help message and exit."
-
-			tput bold; echo '\n'"Examples:"; tput sgr0
-			
-			echo '\t'"$0"
-			echo '\t'"$0 --help"
-			echo '\t'"More examples coming soon..."
-			exit 1
+			show_help
+			exit 0
             ;;
 		-a|--archive)
 			if [[ $OPERATION == "none" ]]; then
