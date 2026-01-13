@@ -18,27 +18,40 @@ to_human() {
 }
 
 get_size() {
-	local OBJECT_SIZE=$(du -sk "$1" | awk '{print $1 * 1024}')
-	echo "$OBJECT_SIZE"
+    local TARGET="$1"
+    
+    if [ -f "$TARGET" ]; then
+        # If it's a file, just get its size
+        stat -f%z "$TARGET"
+    elif [ -d "$TARGET" ]; then
+        # If it's a directory, sum the size of all files inside recursively
+        # -type f: looks only for files (ignoring directory metadata size)
+        # -print0 / -0: handles filenames with spaces correctly
+        find "$TARGET" -type f -print0 | xargs -0 stat -f%z | awk '{s+=$1} END {print s+0}'
+    else
+        echo "Error: $TARGET is not a valid file or directory" >&2
+        return 1
+    fi
+    return 0
 }
 
 object_type() {
 	if [[ ! -e "$1" && ! -L "$1" ]]; then
-		echo "nonexistent"
+		echo "nonexistent"	# Object does not exist
 	elif [[ -L "$1" ]]; then
-		echo "symlink"
+		echo "symlink"		# Symlink
 	elif [[ -d "$1" ]]; then
-		echo "directory"
+		echo "directory"	# Folder (Directory)
 	elif [[ -f "$1" ]]; then
-		echo "file"
+		echo "file"			# File
 	elif [[ -S "$1" ]]; then
-		echo "socket"
+		echo "socket"		# Socket
 	elif [[ -p "$1" ]]; then
-		echo "named pipe"
+		echo "pipe"			# Named pipe (FIFO)
 	elif [[ -b "$1" ]]; then
-		echo "block device"
+		echo "block"		# Block device
 	elif [[ -c "$1" ]]; then
-		echo "character device"
+		echo "character"	# Character device
 	else
 		echo "unknown"
 	fi
@@ -135,6 +148,12 @@ OPTIONS
 		
 	-y, --yes
 		Skip user confirmation, live fast and dangerous.
+		
+	-f, --fast
+		Skip source and destination size determination.
+		
+		The check can take a long time for large directories with
+		a lot of files in them.
 
 	-d size, --dictionary size
 		Set a custom dictionary size (in MB) for compression.
@@ -177,8 +196,8 @@ EXAMPLES
 	Unarchive into the current directory:
 		arch.sh -u backup.tar.7z
 
-	Unarchive into a specific directory:
-		arch.sh -u backup.tar.7z -o ./output
+	Unarchive into a specific directory and skip file size checks:
+		arch.sh -u backup.tar.7z -o ./output -f
 
 EOF
 }
@@ -196,6 +215,7 @@ DESTINATION_SPECIFIED="false"
 CONFIRMATION_NEEDED="true"
 DICTIONARY_SIZE=256
 DICTIONARY_SIZE_SPECIFIED="false"
+CHECK_FILE_SIZES="true"
 
 while (( $# > 0 )); do
     ARG="$1"
@@ -223,6 +243,9 @@ while (( $# > 0 )); do
 			;;
 		-y|--yes)
 			CONFIRMATION_NEEDED="false"
+			;;
+		-f|--fast)
+			CHECK_FILE_SIZES="false"
 			;;
 		-d|--dictionary)
             if [[ $DICTIONARY_SIZE_SPECIFIED == "false" ]]; then
@@ -293,13 +316,16 @@ fi
 DESTINATION_DIR=${DESTINATION_DIR:a}
 tput bold
 if [[ $OPERATION == "archive" ]]; then
-	echo "Archive ${SOURCE_PATH:t}"
+	DESTINATION_PATH="${DESTINATION_DIR:a}/${SOURCE_PATH:t}.tar.7z"
+	printf "Archive"
 else
-	echo "Unarchive ${SOURCE_PATH:t}"
+	DESTINATION_PATH="${DESTINATION_DIR:a}"	# Add trailing '/'?
+	printf "Unarchive"
 fi
+printf " ${SOURCE_PATH:t} to ${DESTINATION_PATH:t}\n"
 tput sgr0
 if [[ $DICTIONARY_SIZE_SPECIFIED == "true" ]]; then
-	printf "Dictionary:\t%dm \n" $DICTIONARY_SIZE
+	printf "Dictionary:\t%d MB\n" $DICTIONARY_SIZE
 fi
 printf "Source:\t\t%s\n" "$SOURCE_PATH"
 if [[ $OPERATION == "archive" ]]; then
@@ -308,11 +334,13 @@ else
 	DESTINATION_PATH="${DESTINATION_DIR:a}"	# Add trailing '/'?
 fi
 printf "Destination:\t%s\n" "$DESTINATION_PATH"
-printf "Determining Source Size..."
-SOURCE_SIZE_BYTE=$(get_size $SOURCE_PATH)
-SOURCE_SIZE=$(to_human $SOURCE_SIZE_BYTE)
-tput cr && tput el
-printf "\rSource Size:\t$SOURCE_SIZE / $SOURCE_SIZE_BYTE bytes\n"
+if [[ $CHECK_FILE_SIZES == "true" ]]; then
+	printf "Determining Source Size..."
+	SOURCE_SIZE_BYTE=$(get_size $SOURCE_PATH)
+	SOURCE_SIZE=$(to_human $SOURCE_SIZE_BYTE)
+	tput cr && tput el
+	printf "\rSource Size:\t$SOURCE_SIZE / $SOURCE_SIZE_BYTE bytes\n"
+fi
 if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
 	DESTINATION_TYPE="$(object_type $DESTINATION_PATH)"
 	if [[ $DESTINATION_TYPE == "file" ]]; then
@@ -353,32 +381,57 @@ if [[ $OPERATION == "archive" ]]; then
 		echo "Exiting."
 		exit 1
 	fi
-	printf "Determining archive size..."
-else
-	printf "Decompressing..."
+	printf "Checking archive integrity..."
+	if ! 7zz t "$DESTINATION_PATH" > /dev/null 2>&1; then
+		printf "\rArchive ${$SOURCE_PATH:t} integrity could not be verified. Exiting.\n"
+		return 1
+	fi
 	
+else
+	printf "Checking archive readability..."
+	if ! 7zz l "$SOURCE_PATH" > /dev/null 2>&1; then
+		tput cr && tput el
+		printf "\rArchive ${$SOURCE_PATH:t} could not be read. Exiting.\n"
+		return 1
+	fi
+	tput cr && tput el
+	printf "\rDecompressing..."
 	7zz x -so "$SOURCE_PATH" | tar --acls --xattrs -C "$DESTINATION_PATH" -xf -
 	if ! check_pipeline_7zz_tar "${pipestatus[@]}"; then
 		echo "Exiting."
 		return 1
 	fi
-	printf "Determining destination size..."
+	
 fi
 
-DESTINATION_SIZE_BYTE=$(get_size $DESTINATION_PATH)
-DESTINATION_SIZE=$(to_human $DESTINATION_SIZE_BYTE)
-PERCENTAGE=$(( (DESTINATION_SIZE_BYTE * 100.0) / SOURCE_SIZE_BYTE ))
-tput cr && tput el
-if [[ $OPERATION == "archive" ]]; then
-	printf "\rArchive Size:\t"
+if [[ $CHECK_FILE_SIZES == "true" ]]; then
+	if [[ $OPERATION == "archive" ]]; then
+		tput cr && tput el
+		printf "\rDetermining archive size..."
+	else
+		tput cr && tput el
+		printf "\rDetermining destination size..."
+	fi
+	
+	DESTINATION_SIZE_BYTE=$(get_size $DESTINATION_PATH)
+	DESTINATION_SIZE=$(to_human $DESTINATION_SIZE_BYTE)
+	PERCENTAGE=$(( (DESTINATION_SIZE_BYTE * 100.0) / SOURCE_SIZE_BYTE ))
+	
+	if [[ $OPERATION == "archive" ]]; then
+		tput cr && tput el
+		printf "\rArchive Size:\t"
+	else
+		tput cr && tput el
+		printf "\rDestin. Size:\t"
+	fi
+	printf "$DESTINATION_SIZE / $DESTINATION_SIZE_BYTE bytes (%.1f%%)\n" "$PERCENTAGE"
+	
+	SIZE_DIFFERENCE_BYTE=$(( DESTINATION_SIZE_BYTE - SOURCE_SIZE_BYTE ))
+	SIZE_DIFFERENCE=$(to_human $SIZE_DIFFERENCE_BYTE)
+	printf "Difference:\t$SIZE_DIFFERENCE / $SIZE_DIFFERENCE_BYTE bytes\n"
 else
-	printf "\rDestin. Size:\t"
+	tput cr && tput el
 fi
-printf "$DESTINATION_SIZE / $DESTINATION_SIZE_BYTE bytes (%.1f%%)\n" "$PERCENTAGE"
-SIZE_DIFFERENCE_BYTE=$(( DESTINATION_SIZE_BYTE - SOURCE_SIZE_BYTE ))
-SIZE_DIFFERENCE=$(to_human $SIZE_DIFFERENCE_BYTE)
-
-printf "Difference:\t$SIZE_DIFFERENCE / $SIZE_DIFFERENCE_BYTE bytes\n"
 
 # Record end time (epoch seconds)
 END_EPOCH=$(date +%s)
