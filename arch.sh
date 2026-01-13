@@ -381,7 +381,7 @@ if [[ $OPERATION == "archive" ]]; then
 		echo "Exiting."
 		exit 1
 	fi
-	printf "Checking archive integrity..."
+	printf "Performing cursory archive integrity check..."
 	if ! 7zz t "$DESTINATION_PATH" > /dev/null 2>&1; then
 		printf "\rArchive ${$SOURCE_PATH:t} integrity could not be verified. Exiting.\n"
 		return 1
