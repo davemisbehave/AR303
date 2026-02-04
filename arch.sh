@@ -145,7 +145,18 @@ OPTIONS
 
 	-u, --unarchive
 		Unarchive input_path, which must be a .tar.7z file.
+
+	-e, --encrypt
+		Use SHA-256 to encrypt the archive. The user will be asked
+		to enter the password during runtime.
 		
+	-E password, --Encrypt password
+		Use SHA-256 to encrypt the archive using the password
+		specified in the next argument. This method is highly
+		insecure and not reccommended.
+		
+		i.e. -E p55w0rd or --Encrypt pa55w0rd
+
 	-y, --yes
 		Skip user confirmation, live fast and dangerous.
 		
@@ -216,6 +227,8 @@ CONFIRMATION_NEEDED="true"
 DICTIONARY_SIZE=256
 DICTIONARY_SIZE_SPECIFIED="false"
 CHECK_FILE_SIZES="true"
+ENCRYPTION_SPECIFIED="false"
+PASSWORD_SPECIFIED="false"
 
 while (( $# > 0 )); do
     ARG="$1"
@@ -247,6 +260,30 @@ while (( $# > 0 )); do
 		-f|--fast)
 			CHECK_FILE_SIZES="false"
 			;;
+		-e|--encrypt)
+			ENCRYPTION_SPECIFIED="true"
+			PASSWORD_SPECIFIED="false"
+			;;
+		-E|--Encrypt)
+            if [[ $ENCRYPTION_SPECIFIED == "false" ]]; then
+                if (( $# > 1 )); then
+                    # Store next argument (password)
+					ARCHIVE_PASSWORD="$2"
+                    # Skip the next argument in the next iteration
+                    shift
+					# Flag encryption as specified
+					ENCRYPTION_SPECIFIED="true"
+					# Flag password as specified
+					PASSWORD_SPECIFIED="true"
+                else
+                    echo "No password specified for -E/--Encrypt option. Exiting."
+                    exit 1
+				fi
+			else
+				echo "-E/--Encrypt password specified multiple times. Exiting."
+				exit 1
+			fi
+			;;
 		-d|--dictionary)
             if [[ $DICTIONARY_SIZE_SPECIFIED == "false" ]]; then
                 if (( $# > 1 )); then
@@ -257,11 +294,12 @@ while (( $# > 0 )); do
 					# Flag dictionary size as specified
 					DICTIONARY_SIZE_SPECIFIED="true"
                 else
-                    echo "No dictionary size specified for -o/--output option. Exiting."
+                    echo "No dictionary size specified for -d/--dictionary option. Exiting."
                     exit 1
 				fi
 			else
 				echo "-d/--dictionary option specified multiple times. Exiting."
+				exit 1
 			fi
 			;;
 		-o|--output)
@@ -279,6 +317,7 @@ while (( $# > 0 )); do
 				fi
 			else
 				echo "-o/--output option specified multiple times. Exiting."
+				exit 1
 			fi
 			;;
 		*)
@@ -301,7 +340,8 @@ done
 
 if [[ $OPERATION == "none" ]]; then
 	echo "No operation was specified. Use -a/--archive or -u/--unarchive. Run ./$0 -h for help."
-	echo "Exiting Script."
+	echo "Exiting."
+	exit 1
 fi
 
 if [[ ! -e "$SOURCE_PATH" ]]; then
@@ -376,7 +416,24 @@ mkdir -p "${DESTINATION_DIR:a}"
 START_EPOCH=$(date +%s)
 
 if [[ $OPERATION == "archive" ]]; then
-	tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null | 7zz a -t7z -si -mx=9 -m0=lzma2 -md="$DICTIONARY_SIZE"m -mmt=on -bso0 -bsp1 "$DESTINATION_PATH"
+	ZIP_OPTIONS=(a -t7z -si -mx=9 -m0=lzma2 -md="${DICTIONARY_SIZE}m" -mmt=on -bso0 -bsp1)
+	if [[ $ENCRYPTION_SPECIFIED == "true" ]]; then
+		if [[ $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
+			ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
+		else
+			ZIP_OPTIONS+=("-p")
+		fi
+	fi
+	
+	printf "\nZIP_OPTIONS: "
+	for item in "${ZIP_OPTIONS[@]}"; do
+		printf "$item "
+	done
+	printf "\n"
+	
+	typeset -p ZIP_OPTIONS
+	
+	tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null | 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH"
 	if ! check_pipeline_tar_7zz "${pipestatus[@]}"; then
 		echo "Exiting."
 		exit 1
@@ -384,24 +441,22 @@ if [[ $OPERATION == "archive" ]]; then
 	printf "Performing cursory archive integrity check..."
 	if ! 7zz t "$DESTINATION_PATH" > /dev/null 2>&1; then
 		printf "\rArchive ${$SOURCE_PATH:t} integrity could not be verified. Exiting.\n"
-		return 1
+		exit 1
 	fi
-	
 else
 	printf "Checking archive readability..."
 	if ! 7zz l "$SOURCE_PATH" > /dev/null 2>&1; then
 		tput cr && tput el
 		printf "\rArchive ${$SOURCE_PATH:t} could not be read. Exiting.\n"
-		return 1
+		exit 1
 	fi
 	tput cr && tput el
 	printf "\rDecompressing..."
 	7zz x -so "$SOURCE_PATH" | tar --acls --xattrs -C "$DESTINATION_PATH" -xf -
 	if ! check_pipeline_7zz_tar "${pipestatus[@]}"; then
 		echo "Exiting."
-		return 1
+		exit 1
 	fi
-	
 fi
 
 if [[ $CHECK_FILE_SIZES == "true" ]]; then
