@@ -261,6 +261,8 @@ while (( $# > 0 )); do
 			CHECK_FILE_SIZES="false"
 			;;
 		-e|--encrypt)
+            echo "Error: -e/--encrypt option not yet implemented Exiting."
+            exit 1
 			ENCRYPTION_SPECIFIED="true"
 			PASSWORD_SPECIFIED="false"
 			;;
@@ -280,7 +282,7 @@ while (( $# > 0 )); do
                     exit 1
 				fi
 			else
-				echo "-E/--Encrypt password specified multiple times. Exiting."
+				echo "Encryption specified multiple times. Exiting."
 				exit 1
 			fi
 			;;
@@ -398,6 +400,10 @@ if [[ -e $DESTINATION_PATH && $OPERATION == "unarchive" ]]; then
 	fi
 fi
 
+if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "false" && ! -t 0 && ! -e /dev/tty ]]; then
+  echo "Warning: No TTY available for secure password prompt."
+fi
+
 if [[ $CONFIRMATION_NEEDED == "true" ]]; then
 	read "?Confirm with 'y': " CONFIRMATION
 	[[ $CONFIRMATION == "y" ]] || {
@@ -418,41 +424,48 @@ START_EPOCH=$(date +%s)
 if [[ $OPERATION == "archive" ]]; then
 	ZIP_OPTIONS=(a -t7z -si -mx=9 -m0=lzma2 -md="${DICTIONARY_SIZE}m" -mmt=on -bso0 -bsp1)
 	if [[ $ENCRYPTION_SPECIFIED == "true" ]]; then
+        ZIP_OPTIONS+=("-mhe=on")
 		if [[ $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
 			ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
-		else
-			ZIP_OPTIONS+=("-p")
 		fi
 	fi
-	
-	printf "\nZIP_OPTIONS: "
-	for item in "${ZIP_OPTIONS[@]}"; do
-		printf "$item "
-	done
-	printf "\n"
-	
-	typeset -p ZIP_OPTIONS
-	
+
 	tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null | 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH"
 	if ! check_pipeline_tar_7zz "${pipestatus[@]}"; then
 		echo "Exiting."
 		exit 1
 	fi
-	printf "Performing cursory archive integrity check..."
-	if ! 7zz t "$DESTINATION_PATH" > /dev/null 2>&1; then
+ 
+    ZIP_OPTIONS=(t)
+    if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
+        ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
+    fi
+    printf "Performing archive integrity check..."
+	if ! 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" > /dev/null 2>&1; then
 		printf "\rArchive ${$SOURCE_PATH:t} integrity could not be verified. Exiting.\n"
 		exit 1
 	fi
 else
+    ZIP_OPTIONS=(l)
+    if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
+        ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
+    fi
+
 	printf "Checking archive readability..."
-	if ! 7zz l "$SOURCE_PATH" > /dev/null 2>&1; then
+	if ! 7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" > /dev/null 2>&1; then
 		tput cr && tput el
 		printf "\rArchive ${$SOURCE_PATH:t} could not be read. Exiting.\n"
 		exit 1
 	fi
 	tput cr && tput el
+ 
+    ZIP_OPTIONS=(x -so)
+    if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
+        ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
+    fi
+ 
 	printf "\rDecompressing..."
-	7zz x -so "$SOURCE_PATH" | tar --acls --xattrs -C "$DESTINATION_PATH" -xf -
+	7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" | tar --acls --xattrs -C "$DESTINATION_PATH" -xf -
 	if ! check_pipeline_7zz_tar "${pipestatus[@]}"; then
 		echo "Exiting."
 		exit 1
