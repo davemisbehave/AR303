@@ -140,11 +140,13 @@ OPTIONS
 		Display this help and exit. All other arguments
 		are ignored.
 
-	-a, --archive
+	-a, --archive, -A, --Archive
 		Archive input_path into a .tar.7z file.
+        Skip user confirmation if -A or --Archive is specified.
 
-	-u, --unarchive
+	-u, --unarchive, -U, --Unarchive
 		Unarchive input_path, which must be a .tar.7z file.
+        Skip user confirmation if -U or --Unarchive is specified.
 
 	-e, --encrypt
 		Use SHA-256 to encrypt the archive. The user will be asked
@@ -156,9 +158,6 @@ OPTIONS
 		insecure and not reccommended.
 		
 		i.e. -E p55w0rd or --Encrypt pa55w0rd
-
-	-y, --yes
-		Skip user confirmation, live fast and dangerous.
 		
 	-f, --fast
 		Skip source and destination size determination.
@@ -216,7 +215,7 @@ EOF
 # Ensure 7zz exists
 if ! command -v 7zz >/dev/null 2>&1; then
 	tput bold; echo "7zz not installed."; tput sgr0
-	echo "Install with: brew install p7zip"
+	echo "Install with: brew install sevenzip"
 	exit 1
 fi
 
@@ -238,24 +237,27 @@ while (( $# > 0 )); do
 			show_help
 			exit 0
             ;;
-		-a|--archive)
+		-a|--archive|-A|--Archive)
+            if [[ $ARG == "-A" || $ARG == "-Archive" ]]; then
+                CONFIRMATION_NEEDED="false"
+            fi
 			if [[ $OPERATION == "none" ]]; then
 				OPERATION="archive"
 			else
-				echo "-a/--archive and -u/--unarchive options both selected. Exiting."
+				echo "Archive and unarchive options both selected. Exiting."
 				exit 1
 			fi
 			;;
-		-u|--unarchive)
+		-u|--unarchive|-U|-Unarchive)
+            if [[ $ARG == "-U" || $ARG == "-Unarchive" ]]; then
+                CONFIRMATION_NEEDED="false"
+            fi
 			if [[ $OPERATION == "none" ]]; then
 				OPERATION="unarchive"
 			else
-				echo "-a/--archive and -u/--unarchive options both selected. Exiting."
+				echo "Archive and unarchive options both selected. Exiting."
 				exit 1
 			fi
-			;;
-		-y|--yes)
-			CONFIRMATION_NEEDED="false"
 			;;
 		-f|--fast)
 			CHECK_FILE_SIZES="false"
@@ -411,6 +413,8 @@ if [[ $CONFIRMATION_NEEDED == "true" ]]; then
 		exit 1
 	}
 fi
+
+echo "Starting time:\t$(date)"
 
 if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
 	printf "Deleting pre-existing ${DESTINATION_PATH:t}..."
