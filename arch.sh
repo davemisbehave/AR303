@@ -81,8 +81,8 @@ check_tar() {
 	fi
 }
 
-# Usage: check_pipeline "${pipestatus[@]}"
-check_pipeline_tar_7zz() {
+# Usage: check_pipeline_tar_pv_7zz "${pipestatus[@]}"
+check_pipeline_tar_pv_7zz() {
     local STATUSES=("$@")
     local EXIT_CODE=0
 
@@ -92,14 +92,20 @@ check_pipeline_tar_7zz() {
 	fi
 
 	if [[ ${STATUSES[2]} -ne 0 ]]; then
-		printf "\rError: Command 7zz in pipeline failed with exit code ${STATUSES[2]}: $(check_7zz ${STATUSES[2]})\n"
+		printf "\rError: Command pv in pipeline failed with exit code ${STATUSES[2]}\n"
 		EXIT_CODE=1
 	fi
+ 
+    if [[ ${STATUSES[3]} -ne 0 ]]; then
+        printf "\rError: Command 7zz in pipeline failed with exit code ${STATUSES[2]}: $(check_7zz ${STATUSES[3]})\n"
+        EXIT_CODE=1
+    fi
 
     return $EXIT_CODE
 }
 
-check_pipeline_7zz_tar() {
+# Usage: check_pipeline_7zz_pv_tar "${pipestatus[@]}"
+check_pipeline_7zz_pv_tar() {
     local STATUSES=("$@")
     local EXIT_CODE=0
 
@@ -108,12 +114,69 @@ check_pipeline_7zz_tar() {
 		EXIT_CODE=1
 	fi
 
-	if [[ ${STATUSES[2]} -ne 0 ]]; then
-		echo "Error: Command tar in pipeline failed with exit code ${STATUSES[2]}: $(check_tar ${STATUSES[2]})\n"
+    if [[ ${STATUSES[2]} -ne 0 ]]; then
+        echo "Error: Command pv in pipeline failed with exit code ${STATUSES[2]}\n"
+        EXIT_CODE=1
+    fi
+
+	if [[ ${STATUSES[3]} -ne 0 ]]; then
+		echo "Error: Command tar in pipeline failed with exit code ${STATUSES[3]}: $(check_tar ${STATUSES[3]})\n"
 		EXIT_CODE=1
 	fi
 
     return $EXIT_CODE
+}
+
+tar_pv_7zz_with_two_phase_progress() {
+  local TMPDIR FIFO PID7zz ST7zz
+  local -a ST_PACK STATUSES
+
+  TMPDIR="$(mktemp -d -t tar7zz)" || return 1
+  FIFO="$TMPDIR/stream.FIFO"
+  mkfifo "$FIFO" || { rmdir "$TMPDIR" 2>/dev/null; return 1; }
+
+  # Cleanup on exit / ctrl-c
+  cleanup() {
+    local ec=$?
+    [[ -n "${PID7zz:-}" ]] && kill -0 "$PID7zz" 2>/dev/null && kill "$PID7zz" 2>/dev/null
+    rm -f "$FIFO" 2>/dev/null
+    rmdir "$TMPDIR" 2>/dev/null
+    return $ec
+  }
+  trap cleanup INT TERM HUP EXIT
+
+  # Start 7zz consuming from FIFO in the background
+  7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" <"$FIFO" &
+  PID7zz=$!
+
+  # Phase 1: tar -> pv -> FIFO (foreground, so we can read $pipestatus)
+  tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null \
+    | pv -s "$SOURCE_SIZE_BYTE" -ptebar -N "${SOURCE_PATH:t}" \
+    >"$FIFO"
+
+  ST_PACK=("${pipestatus[@]}")  # (tar, pv)
+
+  # Phase 2: spinner while 7zz is still compressing/writing
+  if kill -0 "$PID7zz" 2>/dev/null; then
+    local frames=('|' '/' '-' '\')
+    local i=1
+    while kill -0 "$PID7zz" 2>/dev/null; do
+      printf "\rFinishing compression… %s" "${frames[i]}"
+      i=$(( i % ${#frames} + 1 ))
+      sleep 0.12
+    done
+    tput cr && tput el
+  fi
+
+  wait "$PID7zz"
+  ST7zz=$?
+
+  STATUSES=("${ST_PACK[@]}" "$ST7zz")
+
+  trap - INT TERM HUP EXIT
+  cleanup >/dev/null 2>&1 || true
+
+  check_pipeline_tar_pv_7zz "${STATUSES[@]}"
 }
 
 show_help() {
@@ -169,6 +232,13 @@ OPTIONS
 		Set a custom dictionary size (in MB) for compression.
 		
 		If not specified, a dictionary size of 256MB will be used.
+  
+    -t threads, --threads threads
+        Set a custom number of threads for compression.
+        This must be a number greater than 1, or can be
+        either "auto" or "on" for an automatic setting.
+        
+        If not specified, the automatic setting will be used.
 
 	-o destination, --output destination
 		Specify the destination directory.
@@ -219,6 +289,13 @@ if ! command -v 7zz >/dev/null 2>&1; then
 	exit 1
 fi
 
+# Ensure pv exists
+if ! command -v pv >/dev/null 2>&1; then
+    tput bold; echo "pv not installed."; tput sgr0
+    echo "Install with: brew install pv"
+    exit 1
+fi
+
 OPERATION="none"
 SOURCE_SPECIFIED="false"
 DESTINATION_SPECIFIED="false"
@@ -228,6 +305,8 @@ DICTIONARY_SIZE_SPECIFIED="false"
 CHECK_FILE_SIZES="true"
 ENCRYPTION_SPECIFIED="false"
 PASSWORD_SPECIFIED="false"
+THREADS="on"
+THREADS_SPECIFIED="false"
 
 while (( $# > 0 )); do
     ARG="$1"
@@ -263,7 +342,7 @@ while (( $# > 0 )); do
 			CHECK_FILE_SIZES="false"
 			;;
 		-e|--encrypt)
-            echo "Error: -e/--encrypt option not yet implemented Exiting."
+            echo "Error: -e/--encrypt option not yet implemented. Exiting."
             exit 1
 			ENCRYPTION_SPECIFIED="true"
 			PASSWORD_SPECIFIED="false"
@@ -306,6 +385,30 @@ while (( $# > 0 )); do
 				exit 1
 			fi
 			;;
+        -t|--threads)
+            if [[ $THREADS_SPECIFIED == "false" ]]; then
+                if (( $# > 1 )); then
+                    # Store next argument (number of threads)
+                    THREADS="$2"
+                    if [[ "$THREADS" == "auto" ]]; then
+                        THREADS="on"
+                    elif [[ ! ( "$THREADS" == "on" || ( "$THREADS" =~ ^[0-9]+$ && "$THREADS" -ge 1 ) ) ]]; then
+                        printf "Error: %s is not a valid amount of threads. Exiting.\n" $THREADS
+                        exit 1
+                    fi
+                    # Skip the next argument in the next iteration
+                    shift
+                    # Flag number of threads as specified
+                    THREADS_SPECIFIED="true"
+                else
+                    echo "No amount of threads specified for -t/--threads option. Exiting."
+                    exit 1
+                fi
+            else
+                echo "-t/--threads option specified multiple times. Exiting."
+                exit 1
+            fi
+            ;;
 		-o|--output)
             if [[ $DESTINATION_SPECIFIED == "false" ]]; then
                 if (( $# > 1 )); then
@@ -343,9 +446,15 @@ while (( $# > 0 )); do
 done
 
 if [[ $OPERATION == "none" ]]; then
-	echo "No operation was specified. Use -a/--archive or -u/--unarchive. Run ./$0 -h for help."
+	echo "No operation was specified. Use -a/--archive or -u/--unarchive. Run $0 -h for help."
 	echo "Exiting."
 	exit 1
+fi
+
+if [[ $OPERATION == "unarchive" && $THREADS_SPECIFIED != "false" ]]; then
+    echo "The unarchive operation does not support specifying threads with -t/--threads."
+    echo "Exiting."
+    exit 1
 fi
 
 if [[ ! -e "$SOURCE_PATH" ]]; then
@@ -370,6 +479,13 @@ printf " ${SOURCE_PATH:t} to ${DESTINATION_PATH:t}\n"
 tput sgr0
 if [[ $DICTIONARY_SIZE_SPECIFIED == "true" ]]; then
 	printf "Dictionary:\t%d MB\n" $DICTIONARY_SIZE
+fi
+if [[ $THREADS_SPECIFIED == "true" ]]; then
+    if [[ "$THREADS" == "on" ]]; then
+        printf "Threads:\tautomatic\n"
+    else
+        printf "Threads:\t%d\n" $THREADS
+    fi
 fi
 printf "Source:\t\t%s\n" "$SOURCE_PATH"
 if [[ $OPERATION == "archive" ]]; then
@@ -414,7 +530,7 @@ if [[ $CONFIRMATION_NEEDED == "true" ]]; then
 	}
 fi
 
-echo "Starting time:\t$(date)"
+echo "\nStarting time:\t$(date)"
 
 if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
 	printf "Deleting pre-existing ${DESTINATION_PATH:t}..."
@@ -426,29 +542,32 @@ mkdir -p "${DESTINATION_DIR:a}"
 START_EPOCH=$(date +%s)
 
 if [[ $OPERATION == "archive" ]]; then
-	ZIP_OPTIONS=(a -t7z -si -mx=9 -m0=lzma2 -md="${DICTIONARY_SIZE}m" -mmt=on -bso0 -bsp1)
+    ZIP_OPTIONS=(a -t7z -si -mx=9 -m0=lzma2 -md="${DICTIONARY_SIZE}m" -mmt="$THREADS" -bso0 -bsp0)
 	if [[ $ENCRYPTION_SPECIFIED == "true" ]]; then
         ZIP_OPTIONS+=("-mhe=on")
 		if [[ $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
 			ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
 		fi
 	fi
-
-	tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null | 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH"
-	if ! check_pipeline_tar_7zz "${pipestatus[@]}"; then
-		echo "Exiting."
-		exit 1
-	fi
  
-    ZIP_OPTIONS=(t)
+    if ! tar_pv_7zz_with_two_phase_progress; then
+        echo "Exiting."
+        exit 1
+    fi
+    
+    ZIP_OPTIONS=(t -bso0 -bsp2)
     if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
         ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
     fi
-    printf "Performing archive integrity check..."
-	if ! 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" > /dev/null 2>&1; then
-		printf "\rArchive ${$SOURCE_PATH:t} integrity could not be verified. Exiting.\n"
-		exit 1
-	fi
+    tput cr && tput el
+    echo "Performing archive integrity check..."
+
+    if ! 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" > /dev/null; then
+        printf "\rArchive ${DESTINATION_PATH:t} integrity could not be verified. Exiting.\n"
+        exit 1
+    fi
+    tput cr; tput el
+    tput cuu1; tput cr; tput el
 else
     ZIP_OPTIONS=(l)
     if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
@@ -468,41 +587,41 @@ else
         ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
     fi
  
-	printf "\rDecompressing..."
-	7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" | tar --acls --xattrs -C "$DESTINATION_PATH" -xf -
-	if ! check_pipeline_7zz_tar "${pipestatus[@]}"; then
+	#printf "\rDecompressing..."
+	7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" | pv -s "$SOURCE_SIZE_BYTE" -N "${SOURCE_PATH:t}" | tar --acls --xattrs -C "$DESTINATION_PATH" -xf -
+	if ! check_pipeline_7zz_pv_tar "${pipestatus[@]}"; then
 		echo "Exiting."
 		exit 1
 	fi
 fi
 
+printf "\n"
+
 if [[ $CHECK_FILE_SIZES == "true" ]]; then
-	if [[ $OPERATION == "archive" ]]; then
-		tput cr && tput el
-		printf "\rDetermining archive size..."
-	else
-		tput cr && tput el
-		printf "\rDetermining destination size..."
-	fi
-	
-	DESTINATION_SIZE_BYTE=$(get_size $DESTINATION_PATH)
-	DESTINATION_SIZE=$(to_human $DESTINATION_SIZE_BYTE)
-	PERCENTAGE=$(( (DESTINATION_SIZE_BYTE * 100.0) / SOURCE_SIZE_BYTE ))
-	
-	if [[ $OPERATION == "archive" ]]; then
-		tput cr && tput el
-		printf "\rArchive Size:\t"
-	else
-		tput cr && tput el
-		printf "\rDestin. Size:\t"
-	fi
-	printf "$DESTINATION_SIZE / $DESTINATION_SIZE_BYTE bytes (%.1f%%)\n" "$PERCENTAGE"
-	
-	SIZE_DIFFERENCE_BYTE=$(( DESTINATION_SIZE_BYTE - SOURCE_SIZE_BYTE ))
-	SIZE_DIFFERENCE=$(to_human $SIZE_DIFFERENCE_BYTE)
-	printf "Difference:\t$SIZE_DIFFERENCE / $SIZE_DIFFERENCE_BYTE bytes\n"
-else
-	tput cr && tput el
+    if [[ $OPERATION == "archive" ]]; then
+        #tput cr && tput el
+        printf "\rDetermining archive size..."
+    else
+        #tput cr && tput el
+        printf "\rDetermining destination size..."
+    fi
+    
+    DESTINATION_SIZE_BYTE=$(get_size $DESTINATION_PATH)
+    DESTINATION_SIZE=$(to_human $DESTINATION_SIZE_BYTE)
+    PERCENTAGE=$(( (DESTINATION_SIZE_BYTE * 100.0) / SOURCE_SIZE_BYTE ))
+    
+    if [[ $OPERATION == "archive" ]]; then
+        tput cr && tput el
+        printf "\rArchive Size:\t"
+    else
+        tput cr && tput el
+        printf "\rDestin. Size:\t"
+    fi
+    printf "$DESTINATION_SIZE / $DESTINATION_SIZE_BYTE bytes (%.1f%%)\n" "$PERCENTAGE"
+    
+    SIZE_DIFFERENCE_BYTE=$(( DESTINATION_SIZE_BYTE - SOURCE_SIZE_BYTE ))
+    SIZE_DIFFERENCE=$(to_human $SIZE_DIFFERENCE_BYTE)
+    printf "Difference:\t$SIZE_DIFFERENCE / $SIZE_DIFFERENCE_BYTE bytes\n"
 fi
 
 # Record end time (epoch seconds)
