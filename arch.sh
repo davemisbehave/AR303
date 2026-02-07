@@ -58,7 +58,6 @@ object_type() {
 }
 
 check_7zz() {
-	# Specific logic for 7zz
 	if [[ $1 -eq 2 ]]; then
 		echo "Fatal error (check disk space or file permissions)"
 	elif [[ $1 -eq 8 ]]; then
@@ -71,7 +70,6 @@ check_7zz() {
 }
 
 check_tar() {
-	# Specific logic for 7zz
 	if [[ $1 -eq 1 ]]; then
 		echo "Warning (some files differ, were busy, or couldn't be read, but the archive was still created)"
 	elif [[ $1 -eq 2 ]]; then
@@ -282,6 +280,8 @@ EXAMPLES
 EOF
 }
 
+### BEGINNING OF SCRIPT ####
+
 # Ensure 7zz exists
 if ! command -v 7zz >/dev/null 2>&1; then
 	tput bold; echo "7zz not installed."; tput sgr0
@@ -470,12 +470,11 @@ DESTINATION_DIR=${DESTINATION_DIR:a}
 tput bold
 if [[ $OPERATION == "archive" ]]; then
 	DESTINATION_PATH="${DESTINATION_DIR:a}/${SOURCE_PATH:t}.tar.7z"
-	printf "Archive"
+	printf "Archive ${SOURCE_PATH:t} to ${DESTINATION_PATH:t}\n"
 else
-	DESTINATION_PATH="${DESTINATION_DIR:a}"	# Add trailing '/'?
-	printf "Unarchive"
+    DESTINATION_PATH="${DESTINATION_DIR:a}/${${${SOURCE_PATH:t}%.tar.7z}%.7z}"
+	printf "Unarchive ${SOURCE_PATH:t} to ${DESTINATION_DIR:t}\n"
 fi
-printf " ${SOURCE_PATH:t} to ${DESTINATION_PATH:t}\n"
 tput sgr0
 if [[ $DICTIONARY_SIZE_SPECIFIED == "true" ]]; then
 	printf "Dictionary:\t%d MB\n" $DICTIONARY_SIZE
@@ -488,12 +487,13 @@ if [[ $THREADS_SPECIFIED == "true" ]]; then
     fi
 fi
 printf "Source:\t\t%s\n" "$SOURCE_PATH"
+
 if [[ $OPERATION == "archive" ]]; then
-	DESTINATION_PATH="${DESTINATION_DIR:a}/${SOURCE_PATH:t}.tar.7z"
+    printf "Destination:\t%s\n" "$DESTINATION_PATH"
 else
-	DESTINATION_PATH="${DESTINATION_DIR:a}"	# Add trailing '/'?
+    printf "Destination:\t%s\n" "$DESTINATION_DIR"
 fi
-printf "Destination:\t%s\n" "$DESTINATION_PATH"
+
 if [[ $CHECK_FILE_SIZES == "true" ]]; then
 	printf "Determining Source Size..."
 	SOURCE_SIZE_BYTE=$(get_size $SOURCE_PATH)
@@ -510,10 +510,10 @@ if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
 		exit 1
 	fi
 fi
-if [[ -e $DESTINATION_PATH && $OPERATION == "unarchive" ]]; then
-	DESTINATION_TYPE="$(object_type $DESTINATION_PATH)"
+if [[ -e $DESTINATION_DIR && $OPERATION == "unarchive" ]]; then
+	DESTINATION_TYPE="$(object_type $DESTINATION_DIR)"
 	if [[ $DESTINATION_TYPE != "directory" ]]; then
-		echo "Warning: ${DESTINATION_PATH:t} exists and is not a folder ($DESTINATION_TYPE). Exiting."
+		echo "Warning: ${DESTINATION_DIR:t} exists and is not a folder ($DESTINATION_TYPE). Exiting."
 		exit 1
 	fi
 fi
@@ -588,7 +588,7 @@ else
     fi
  
 	#printf "\rDecompressing..."
-	7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" | pv -s "$SOURCE_SIZE_BYTE" -N "${SOURCE_PATH:t}" | tar --acls --xattrs -C "$DESTINATION_PATH" -xf -
+	7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" | pv -s "$SOURCE_SIZE_BYTE" -N "${SOURCE_PATH:t}" | tar --acls --xattrs -C "$DESTINATION_DIR" -xf -
 	if ! check_pipeline_7zz_pv_tar "${pipestatus[@]}"; then
 		echo "Exiting."
 		exit 1
