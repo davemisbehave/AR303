@@ -34,6 +34,17 @@ OPTIONS
         Unarchive input_path, which must be a .tar.7z file.
         Skip user confirmation if -U or --Unarchive is specified.
 
+    -i, --integrity
+        Perform integrity check after creating an archive.
+        
+        The check can take a long time for large archives.
+
+    -f, --fast
+        Skip source and destination size determination.
+        
+        The check can take a long time for large directories with
+        a lot of files in them.
+
     -e, --encrypt
         Use SHA-256 to encrypt the archive. The user will be asked
         to enter the password during runtime.
@@ -44,12 +55,6 @@ OPTIONS
         insecure and not reccommended.
         
         i.e. -E p55w0rd or --Encrypt pa55w0rd
-        
-    -f, --fast
-        Skip source and destination size determination.
-        
-        The check can take a long time for large directories with
-        a lot of files in them.
 
     -d size, --dictionary size
         Set a custom dictionary size (in MB) for compression.
@@ -344,6 +349,10 @@ prepare_e() {
     PASSWORD_SPECIFIED="false"
 }
 
+prepare_i() {
+    PERFORM_INTEGRITY_CHECK="true"
+}
+
 prepare_f() {
     CHECK_FILE_SIZES="false"
 }
@@ -375,6 +384,7 @@ ENCRYPTION_SPECIFIED="false"
 PASSWORD_SPECIFIED="false"
 THREADS="on"
 THREADS_SPECIFIED="false"
+PERFORM_INTEGRITY_CHECK="false"
 
 while (( $# > 0 )); do
     ARG="$1"
@@ -390,8 +400,11 @@ while (( $# > 0 )); do
 		-u|--unarchive|-U|-Unarchive)
             prepare_u $ARG
 			;;
+        -i|--integrity)
+            prepare_i
+            ;;
 		-f|--fast)
-			CHECK_FILE_SIZES="false"
+            prepare_f
 			;;
 		-e|--encrypt)
             prepare_e
@@ -491,6 +504,9 @@ while (( $# > 0 )); do
                         u|U)
                             prepare_u $SIMPLE_ARG
                             ;;
+                        i)
+                            prepare_i
+                            ;;
                         f)
                             prepare_f
                             ;;
@@ -511,7 +527,6 @@ while (( $# > 0 )); do
                 SOURCE_PATH="$1"
                 SOURCE_SPECIFIED="true"
             fi
-			
 			;;
 	esac
 
@@ -523,12 +538,6 @@ if [[ $OPERATION == "none" ]]; then
 	echo "No operation was specified. Use -a/--archive or -u/--unarchive. Run $0 -h for help." >&2
 	echo "Exiting." >&2
 	exit 1
-fi
-
-if [[ $OPERATION == "unarchive" && $THREADS_SPECIFIED != "false" ]]; then
-    echo "The unarchive operation does not support specifying threads with -t/--threads." >&2
-    echo "Exiting." >&2
-    exit 1
 fi
 
 if [[ ! -e "$SOURCE_PATH" ]]; then
@@ -633,15 +642,17 @@ if [[ $OPERATION == "archive" ]]; then
     if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
         ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
     fi
-    tput cr && tput el
-    echo "Performing archive integrity check..."
+    if [[ $PERFORM_INTEGRITY_CHECK == "true" ]]; then
+        tput cr && tput el
+        echo "Performing archive integrity check..."
 
-    if ! 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" > /dev/null; then
-        printf "\rArchive ${DESTINATION_PATH:t} integrity could not be verified. Exiting.\n" >&2
-        exit 1
+        if ! 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" > /dev/null; then
+            printf "\rArchive ${DESTINATION_PATH:t} integrity could not be verified. Exiting.\n" >&2
+            exit 1
+        fi
+        tput cr; tput el
+        tput cuu1; tput cr; tput el
     fi
-    tput cr; tput el
-    tput cuu1; tput cr; tput el
 else
     ZIP_OPTIONS=(l)
     if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
@@ -656,12 +667,11 @@ else
 	fi
 	tput cr && tput el
  
-    ZIP_OPTIONS=(x -so)
+    ZIP_OPTIONS=(x -so -mmt="$THREADS")
     if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
         ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
     fi
  
-	#printf "\rDecompressing..."
 	7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" | pv -s "$SOURCE_SIZE_BYTE" -N "${SOURCE_PATH:t}" | tar --acls --xattrs -C "$DESTINATION_DIR" -xf -
 	if ! check_pipeline_7zz_pv_tar "${pipestatus[@]}"; then
 		echo "Exiting." >&2
