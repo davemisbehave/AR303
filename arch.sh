@@ -44,6 +44,10 @@ OPTIONS
         
         The check can take a long time for large directories with
         a lot of files in them.
+        
+    -s, --silent
+        Disable all output to stdout.
+        Error messages are still written to stderr.
 
     -e, --encrypt
         Use SHA-256 to encrypt the archive. The user will be asked
@@ -91,8 +95,9 @@ NOTES
     current working directory.
 
 EXAMPLES
-    Archive a folder into the current directory:
-        arch.sh -a MyFolder
+    Archive a folder into the current directory without asking the user
+    to confirm:
+        arch.sh -A MyFolder
         
     Archive a file into the current directory with a custom compression
     dictionary size of 128MB:
@@ -105,7 +110,7 @@ EXAMPLES
         arch.sh -u backup.tar.7z
 
     Unarchive into a specific directory and skip file size checks:
-        arch.sh -u backup.tar.7z -o ./output -f
+        arch.sh -uf backup.tar.7z -o ./output
 
 EOF
 }
@@ -275,6 +280,7 @@ tar_pv_7zz_with_two_phase_progress() {
     else
         PV_OPTIONS+=(-trab)
     fi
+    [[ "$SILENT" == "true" ]] && PV_OPTIONS+=(-q)
 
     # Start 7zz consuming from FIFO in the background
     7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" <"$FIFO" &
@@ -357,6 +363,11 @@ prepare_f() {
     CHECK_FILE_SIZES="false"
 }
 
+prepare_s() {
+    exec > /dev/null
+    SILENT="true"
+}
+
 ### BEGINNING OF SCRIPT ####
 
 # Ensure 7zz exists
@@ -385,6 +396,7 @@ PASSWORD_SPECIFIED="false"
 THREADS="on"
 THREADS_SPECIFIED="false"
 PERFORM_INTEGRITY_CHECK="false"
+SILENT="false"
 
 while (( $# > 0 )); do
     ARG="$1"
@@ -406,6 +418,9 @@ while (( $# > 0 )); do
 		-f|--fast)
             prepare_f
 			;;
+        -s|--silent)
+            prepare_s
+            ;;
 		-e|--encrypt)
             prepare_e
 			;;
@@ -512,6 +527,9 @@ while (( $# > 0 )); do
                             ;;
                         e)
                             prepare_e
+                            ;;
+                        s)
+                            prepare_s
                             ;;
                         *)
                             echo "Error: Invalid argument detected: $SIMPLE_ARG in $ARG.\nExitng." >&2
@@ -638,7 +656,7 @@ if [[ $OPERATION == "archive" ]]; then
         exit 1
     fi
     
-    ZIP_OPTIONS=(t -bso0 -bsp2)
+    ZIP_OPTIONS=(t -bso0 -bsp1)
     if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
         ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
     fi
