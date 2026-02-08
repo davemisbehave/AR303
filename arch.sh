@@ -188,17 +188,17 @@ check_pipeline_tar_pv_7zz() {
     local EXIT_CODE=0
 
 	if [[ ${STATUSES[1]} -ne 0 ]]; then
-		printf "\rError: Command tar in pipeline failed with exit code ${STATUSES[1]}: $(check_tar ${STATUSES[1]})\n"
+		printf "\rError: Command tar in pipeline failed with exit code ${STATUSES[1]}: $(check_tar ${STATUSES[1]})\n" >&2
 		EXIT_CODE=1
 	fi
 
 	if [[ ${STATUSES[2]} -ne 0 ]]; then
-		printf "\rError: Command pv in pipeline failed with exit code ${STATUSES[2]}\n"
+		printf "\rError: Command pv in pipeline failed with exit code ${STATUSES[2]}\n" >&2
 		EXIT_CODE=1
 	fi
  
     if [[ ${STATUSES[3]} -ne 0 ]]; then
-        printf "\rError: Command 7zz in pipeline failed with exit code ${STATUSES[2]}: $(check_7zz ${STATUSES[3]})\n"
+        printf "\rError: Command 7zz in pipeline failed with exit code ${STATUSES[2]}: $(check_7zz ${STATUSES[3]})\n" >&2
         EXIT_CODE=1
     fi
 
@@ -211,17 +211,17 @@ check_pipeline_7zz_pv_tar() {
     local EXIT_CODE=0
 
 	if [[ ${STATUSES[1]} -ne 0 ]]; then
-		echo "Error: Command 7zz in pipeline failed with exit code ${STATUSES[1]}: $(check_7zz ${STATUSES[1]})\n"
+		echo "Error: Command 7zz in pipeline failed with exit code ${STATUSES[1]}: $(check_7zz ${STATUSES[1]})\n" >&2
 		EXIT_CODE=1
 	fi
 
     if [[ ${STATUSES[2]} -ne 0 ]]; then
-        echo "Error: Command pv in pipeline failed with exit code ${STATUSES[2]}\n"
+        echo "Error: Command pv in pipeline failed with exit code ${STATUSES[2]}\n" >&2
         EXIT_CODE=1
     fi
 
 	if [[ ${STATUSES[3]} -ne 0 ]]; then
-		echo "Error: Command tar in pipeline failed with exit code ${STATUSES[3]}: $(check_tar ${STATUSES[3]})\n"
+		echo "Error: Command tar in pipeline failed with exit code ${STATUSES[3]}: $(check_tar ${STATUSES[3]})\n" >&2
 		EXIT_CODE=1
 	fi
 
@@ -233,12 +233,12 @@ check_pipeline_tar_7zz() {
     local EXIT_CODE=0
 
     if [[ ${STATUSES[1]} -ne 0 ]]; then
-        echo "Error: Command tar in pipeline failed with exit code ${STATUSES[1]}: $(check_tar ${STATUSES[1]})\n"
+        echo "Error: Command tar in pipeline failed with exit code ${STATUSES[1]}: $(check_tar ${STATUSES[1]})\n" >&2
         EXIT_CODE=1
     fi
 
     if [[ ${STATUSES[2]} -ne 0 ]]; then
-        echo "Error: Command 7zz in pipeline failed with exit code ${STATUSES[2]}: $(check_7zz ${STATUSES[2]})\n"
+        echo "Error: Command 7zz in pipeline failed with exit code ${STATUSES[2]}: $(check_7zz ${STATUSES[2]})\n" >&2
         EXIT_CODE=1
     fi
 
@@ -308,7 +308,7 @@ tar_pv_7zz_with_two_phase_progress() {
 tar_7zz() {
     tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null | 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH"
     if ! check_pipeline_tar_7zz "${pipestatus[@]}"; then
-        echo "Exiting."
+        echo "Exiting." >&2
         exit 1
     fi
 }
@@ -320,7 +320,7 @@ prepare_a() {
     if [[ $OPERATION == "none" ]]; then
         OPERATION="archive"
     else
-        echo "Archive and unarchive options both selected. Exiting."
+        echo "Archive and unarchive options both selected. Exiting." >&2
         exit 1
     fi
 }
@@ -332,13 +332,13 @@ prepare_u() {
     if [[ $OPERATION == "none" ]]; then
         OPERATION="unarchive"
     else
-        echo "Archive and unarchive options both selected. Exiting."
+        echo "Archive and unarchive options both selected. Exiting." >&2
         exit 1
     fi
 }
 
 prepare_e() {
-    echo "Error: -e/--encrypt option not yet implemented. Exiting."
+    echo "Error: -e/--encrypt option not yet implemented. Exiting." >&2
     exit 1
     ENCRYPTION_SPECIFIED="true"
     PASSWORD_SPECIFIED="false"
@@ -352,15 +352,15 @@ prepare_f() {
 
 # Ensure 7zz exists
 if ! command -v 7zz >/dev/null 2>&1; then
-	tput bold; echo "7zz not installed."; tput sgr0
-	echo "Install with: brew install sevenzip"
+	tput bold; echo "7zz not installed." >&2; tput sgr0
+	echo "Install with: brew install sevenzip" >&2
 	exit 1
 fi
 
 # Ensure pv exists
 if ! command -v pv >/dev/null 2>&1; then
-    tput bold; echo "pv not installed."; tput sgr0
-    echo "Install with: brew install pv"
+    tput bold; echo "pv not installed." >&2; tput sgr0
+    echo "Install with: brew install pv" >&2
     exit 1
 fi
 
@@ -408,11 +408,11 @@ while (( $# > 0 )); do
 					# Flag password as specified
 					PASSWORD_SPECIFIED="true"
                 else
-                    echo "No password specified for -E/--Encrypt option. Exiting."
+                    echo "No password specified for -E/--Encrypt option. Exiting." >&2
                     exit 1
 				fi
 			else
-				echo "Encryption specified multiple times. Exiting."
+				echo "Encryption specified multiple times. Exiting." >&2
 				exit 1
 			fi
 			;;
@@ -426,11 +426,11 @@ while (( $# > 0 )); do
 					# Flag dictionary size as specified
 					DICTIONARY_SIZE_SPECIFIED="true"
                 else
-                    echo "No dictionary size specified for -d/--dictionary option. Exiting."
+                    echo "No dictionary size specified for -d/--dictionary option. Exiting." >&2
                     exit 1
 				fi
 			else
-				echo "-d/--dictionary option specified multiple times. Exiting."
+				echo "-d/--dictionary option specified multiple times. Exiting." >&2
 				exit 1
 			fi
 			;;
@@ -442,7 +442,7 @@ while (( $# > 0 )); do
                     if [[ "$THREADS" == "auto" ]]; then
                         THREADS="on"
                     elif [[ ! ( "$THREADS" == "on" || ( "$THREADS" =~ ^[0-9]+$ && "$THREADS" -ge 1 ) ) ]]; then
-                        printf "Error: %s is not a valid amount of threads. Exiting.\n" $THREADS
+                        printf "Error: %s is not a valid amount of threads. Exiting.\n" $THREADS >&2
                         exit 1
                     fi
                     # Skip the next argument in the next iteration
@@ -450,11 +450,11 @@ while (( $# > 0 )); do
                     # Flag number of threads as specified
                     THREADS_SPECIFIED="true"
                 else
-                    echo "No amount of threads specified for -t/--threads option. Exiting."
+                    echo "No amount of threads specified for -t/--threads option. Exiting." >&2
                     exit 1
                 fi
             else
-                echo "-t/--threads option specified multiple times. Exiting."
+                echo "-t/--threads option specified multiple times. Exiting." >&2
                 exit 1
             fi
             ;;
@@ -468,17 +468,16 @@ while (( $# > 0 )); do
 					# Flag destination as specified
                     DESTINATION_SPECIFIED="true"
                 else
-                    echo "No destination specified for -o/--output option. Exiting."
+                    echo "No destination specified for -o/--output option. Exiting." >&2
                     exit 1
 				fi
 			else
-				echo "-o/--output option specified multiple times. Exiting."
+				echo "-o/--output option specified multiple times. Exiting." >&2
 				exit 1
 			fi
 			;;
 		*)
 			if [[ $ARG == -* ]]; then
-                echo "SIMPLE ARG CLUSTER"
                 SIMPLE_ARGUMENTS=( ${(s::)${ARG:1}} )
                 for SIMPLE_ARG in "${SIMPLE_ARGUMENTS[@]}"; do
                     case $SIMPLE_ARG in
@@ -499,14 +498,14 @@ while (( $# > 0 )); do
                             prepare_e
                             ;;
                         *)
-                            echo "Error: Invalid argument detected: $SIMPLE_ARG in $ARG"
+                            echo "Error: Invalid argument detected: $SIMPLE_ARG in $ARG.\nExitng." >&2
                             exit 1
                             ;;
                     esac
                 done
 			else
                 if [[ $SOURCE_SPECIFIED == "true" ]]; then
-                    echo "Error: Multiple sources specified. Exiting."
+                    echo "Error: Multiple sources specified. Exiting." >&2
                     exit 1
                 fi
                 SOURCE_PATH="$1"
@@ -521,19 +520,19 @@ while (( $# > 0 )); do
 done
 
 if [[ $OPERATION == "none" ]]; then
-	echo "No operation was specified. Use -a/--archive or -u/--unarchive. Run $0 -h for help."
-	echo "Exiting."
+	echo "No operation was specified. Use -a/--archive or -u/--unarchive. Run $0 -h for help." >&2
+	echo "Exiting." >&2
 	exit 1
 fi
 
 if [[ $OPERATION == "unarchive" && $THREADS_SPECIFIED != "false" ]]; then
-    echo "The unarchive operation does not support specifying threads with -t/--threads."
-    echo "Exiting."
+    echo "The unarchive operation does not support specifying threads with -t/--threads." >&2
+    echo "Exiting." >&2
     exit 1
 fi
 
 if [[ ! -e "$SOURCE_PATH" ]]; then
-    echo "$SOURCE_PATH does not exist. Exiting."
+    echo "$SOURCE_PATH does not exist. Exiting." >&2
     exit 1
 fi
 
@@ -581,14 +580,14 @@ if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
 	if [[ $DESTINATION_TYPE == "file" ]]; then
 		echo "Warning: ${DESTINATION_PATH:t} exists and will be overwritten."
 	else
-		echo "Warning: ${DESTINATION_PATH:t} exists and is not a file ($DESTINATION_TYPE). Exiting."
+		echo "Warning: ${DESTINATION_PATH:t} exists and is not a file ($DESTINATION_TYPE). Exiting." >&2
 		exit 1
 	fi
 fi
 if [[ -e $DESTINATION_DIR && $OPERATION == "unarchive" ]]; then
 	DESTINATION_TYPE="$(object_type $DESTINATION_DIR)"
 	if [[ $DESTINATION_TYPE != "directory" ]]; then
-		echo "Warning: ${DESTINATION_DIR:t} exists and is not a folder ($DESTINATION_TYPE). Exiting."
+		echo "Warning: ${DESTINATION_DIR:t} exists and is not a folder ($DESTINATION_TYPE). Exiting." >&2
 		exit 1
 	fi
 fi
@@ -600,7 +599,7 @@ fi
 if [[ $CONFIRMATION_NEEDED == "true" ]]; then
 	read "?Confirm with 'y': " CONFIRMATION
 	[[ $CONFIRMATION == "y" ]] || {
-		echo "Exiting."
+		echo "User confirmation negative. Exiting." >&2
 		exit 1
 	}
 fi
@@ -638,7 +637,7 @@ if [[ $OPERATION == "archive" ]]; then
     echo "Performing archive integrity check..."
 
     if ! 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" > /dev/null; then
-        printf "\rArchive ${DESTINATION_PATH:t} integrity could not be verified. Exiting.\n"
+        printf "\rArchive ${DESTINATION_PATH:t} integrity could not be verified. Exiting.\n" >&2
         exit 1
     fi
     tput cr; tput el
@@ -652,7 +651,7 @@ else
 	printf "Checking archive readability..."
 	if ! 7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" > /dev/null 2>&1; then
 		tput cr && tput el
-		printf "\rArchive ${$SOURCE_PATH:t} could not be read. Exiting.\n"
+		printf "\rArchive ${$SOURCE_PATH:t} could not be read. Exiting.\n" >&2
 		exit 1
 	fi
 	tput cr && tput el
@@ -665,7 +664,7 @@ else
 	#printf "\rDecompressing..."
 	7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" | pv -s "$SOURCE_SIZE_BYTE" -N "${SOURCE_PATH:t}" | tar --acls --xattrs -C "$DESTINATION_DIR" -xf -
 	if ! check_pipeline_7zz_pv_tar "${pipestatus[@]}"; then
-		echo "Exiting."
+		echo "Exiting." >&2
 		exit 1
 	fi
 fi
