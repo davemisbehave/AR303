@@ -82,6 +82,19 @@ OPTIONS
         into this directory.
 
         If not specified, the current working directory is used.
+        
+    -O file_name, --Output file_name
+        Specify the output file name for archiving.
+
+        The resulting .tar.7z file is written
+        to this directory.
+        
+        This option only applies to archiving. The program will
+        exit with an error if specified for an unarchiving operation.
+
+        If nothing is specified, the resulting archive will have the
+        same name as the source file or folder, but with a ".tar.7z"
+        postfix.
 
 OPERANDS
     input_path
@@ -103,8 +116,8 @@ EXAMPLES
     dictionary size of 128MB:
         arch.sh -a MyFile.txt -d 128
 
-    Archive a file to a specific directory:
-        arch.sh --archive file.txt --output ~/Archives
+    Archive a file to a specific directory with a specific name:
+        arch.sh --archive file.txt --O ~/Archives/foofile.txt.tar.7z
 
     Unarchive into the current directory:
         arch.sh -u backup.tar.7z
@@ -494,16 +507,41 @@ while (( $# > 0 )); do
                     # Skip the next argument in the next iteration
                     shift
 					# Flag destination as specified
-                    DESTINATION_SPECIFIED="true"
+                    DESTINATION_SPECIFIED="folder"
                 else
-                    echo "No destination specified for -o/--output option. Exiting." >&2
+                    echo "No destination folder specified for -o/--output option. Exiting." >&2
                     exit 1
 				fi
 			else
-				echo "-o/--output option specified multiple times. Exiting." >&2
+				echo "Destination specified multiple times. Exiting." >&2
 				exit 1
 			fi
 			;;
+        -O|--Output)
+            if [[ $DESTINATION_SPECIFIED == "false" ]]; then
+                if (( $# > 1 )); then
+                    if [[ "$2" == */* ]]; then
+                        DESTINATION_DIR="${2:h}"
+                        DESTINATION_FILE="${2:t}"
+                        # Flag destination as file with path
+                        DESTINATION_SPECIFIED="path_and_file"
+                    else
+                        DESTINATION_FILE="$2"
+                        # Flag destination as just a file (without path)
+                        DESTINATION_SPECIFIED="file"
+                    fi
+                    
+                    # Skip the next argument in the next iteration
+                    shift
+                else
+                    echo "No destination file specified for -O/--Output option. Exiting." >&2
+                    exit 1
+                fi
+            else
+                echo "Destination specified multiple times. Exiting." >&2
+                exit 1
+            fi
+            ;;
 		*)
 			if [[ $ARG == -* ]]; then
                 SIMPLE_ARGUMENTS=( ${(s::)${ARG:1}} )
@@ -558,19 +596,29 @@ if [[ $OPERATION == "none" ]]; then
 	exit 1
 fi
 
+if [[ $OPERATION == "unarchive" && ( $DESTINATION_SPECIFIED == "file" || $DESTINATION_SPECIFIED == "path_and_file" ) ]]; then
+    echo "Output file name cannot be specified with -O/--Output for an unarchiving operation." >&2
+    echo "Try using the -o/-output option to specify a folder to unarchive to." >&2
+    echo "Exiting." >&2
+    exit 1
+fi
+
 if [[ ! -e "$SOURCE_PATH" ]]; then
     echo "$SOURCE_PATH does not exist. Exiting." >&2
     exit 1
 fi
 
-if [[ $DESTINATION_SPECIFIED == "false" ]]; then
+if [[ $DESTINATION_SPECIFIED == "false" || $DESTINATION_SPECIFIED == "file" ]]; then
 	DESTINATION_DIR="$PWD"
 fi
 
+# Sanitize DESTINATION_DIR (remove trailing '/')
 DESTINATION_DIR=${DESTINATION_DIR:a}
 tput bold
 if [[ $OPERATION == "archive" ]]; then
-	DESTINATION_PATH="${DESTINATION_DIR:a}/${SOURCE_PATH:t}.tar.7z"
+    [[ $DESTINATION_SPECIFIED == "folder" ]] && DESTINATION_FILE="${SOURCE_PATH:t}.tar.7z"
+    
+	DESTINATION_PATH="${DESTINATION_DIR:a}/$DESTINATION_FILE"
 	printf "Archive ${SOURCE_PATH:t} to ${DESTINATION_PATH:t}\n"
 else
     DESTINATION_PATH="${DESTINATION_DIR:a}/${${${SOURCE_PATH:t}%.tar.7z}%.7z}"
