@@ -2,6 +2,109 @@
 
 set -uo pipefail
 
+show_help() {
+  cat << 'EOF'
+NAME
+    arch.sh — archive or unarchive .tar.7z files
+
+SYNOPSIS
+    arch.sh [-a | -u] [-o destination] input_path
+    arch.sh -h | --help
+
+DESCRIPTION
+    arch.sh archives or unarchives files using tar and 7-Zip
+    piped together, avoiding the creation of intermediate .tar
+    files.
+
+    The input_path specifies either the file, folder, or package
+    to be archived, or the .tar.7z archive to be unarchived.
+
+    Options may be specified in any order.
+
+OPTIONS
+    -h, --help
+        Display this help and exit. All other arguments
+        are ignored.
+
+    -a, --archive, -A, --Archive
+        Archive input_path into a .tar.7z file.
+        Skip user confirmation if -A or --Archive is specified.
+
+    -u, --unarchive, -U, --Unarchive
+        Unarchive input_path, which must be a .tar.7z file.
+        Skip user confirmation if -U or --Unarchive is specified.
+
+    -e, --encrypt
+        Use SHA-256 to encrypt the archive. The user will be asked
+        to enter the password during runtime.
+        
+    -E password, --Encrypt password
+        Use SHA-256 to encrypt the archive using the password
+        specified in the next argument. This method is highly
+        insecure and not reccommended.
+        
+        i.e. -E p55w0rd or --Encrypt pa55w0rd
+        
+    -f, --fast
+        Skip source and destination size determination.
+        
+        The check can take a long time for large directories with
+        a lot of files in them.
+
+    -d size, --dictionary size
+        Set a custom dictionary size (in MB) for compression.
+        
+        If not specified, a dictionary size of 256MB will be used.
+  
+    -t threads, --threads threads
+        Set a custom number of threads for compression.
+        This must be a number greater than 1, or can be
+        either "auto" or "on" for an automatic setting.
+        
+        If not specified, the automatic setting will be used.
+
+    -o destination, --output destination
+        Specify the destination directory.
+
+        When archiving, the resulting .tar.7z file is written
+        to this directory.
+
+        When unarchiving, the archive contents are extracted
+        into this directory.
+
+        If not specified, the current working directory is used.
+
+OPERANDS
+    input_path
+        Path to the file, folder, or package to archive, or
+        the .tar.7z file to unarchive.
+
+NOTES
+    Exactly one of a/--archive or -u/--unarchive must be specified.
+
+    The destination directory is optional and defaults to the
+    current working directory.
+
+EXAMPLES
+    Archive a folder into the current directory:
+        arch.sh -a MyFolder
+        
+    Archive a file into the current directory with a custom compression
+    dictionary size of 128MB:
+        arch.sh -a MyFile.txt -d 128
+
+    Archive a file to a specific directory:
+        arch.sh --archive file.txt --output ~/Archives
+
+    Unarchive into the current directory:
+        arch.sh -u backup.tar.7z
+
+    Unarchive into a specific directory and skip file size checks:
+        arch.sh -u backup.tar.7z -o ./output -f
+
+EOF
+}
+
 to_human() {
 	if (( "$1" < 0 )); then
 		local ABS_SIZE_BYTES=$(( "$1" * -1 ))
@@ -125,159 +228,124 @@ check_pipeline_7zz_pv_tar() {
     return $EXIT_CODE
 }
 
-tar_pv_7zz_with_two_phase_progress() {
-  local TMPDIR FIFO PID7zz ST7zz
-  local -a ST_PACK STATUSES
+check_pipeline_tar_7zz() {
+    local STATUSES=("$@")
+    local EXIT_CODE=0
 
-  TMPDIR="$(mktemp -d -t tar7zz)" || return 1
-  FIFO="$TMPDIR/stream.FIFO"
-  mkfifo "$FIFO" || { rmdir "$TMPDIR" 2>/dev/null; return 1; }
+    if [[ ${STATUSES[1]} -ne 0 ]]; then
+        echo "Error: Command tar in pipeline failed with exit code ${STATUSES[1]}: $(check_tar ${STATUSES[1]})\n"
+        EXIT_CODE=1
+    fi
 
-  # Cleanup on exit / ctrl-c
-  cleanup() {
-    local ec=$?
-    [[ -n "${PID7zz:-}" ]] && kill -0 "$PID7zz" 2>/dev/null && kill "$PID7zz" 2>/dev/null
-    rm -f "$FIFO" 2>/dev/null
-    rmdir "$TMPDIR" 2>/dev/null
-    return $ec
-  }
-  trap cleanup INT TERM HUP EXIT
+    if [[ ${STATUSES[2]} -ne 0 ]]; then
+        echo "Error: Command 7zz in pipeline failed with exit code ${STATUSES[2]}: $(check_7zz ${STATUSES[2]})\n"
+        EXIT_CODE=1
+    fi
 
-  # Start 7zz consuming from FIFO in the background
-  7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" <"$FIFO" &
-  PID7zz=$!
-
-  # Phase 1: tar -> pv -> FIFO (foreground, so we can read $pipestatus)
-  tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null \
-    | pv -s "$SOURCE_SIZE_BYTE" -ptebar -N "${SOURCE_PATH:t}" \
-    >"$FIFO"
-
-  ST_PACK=("${pipestatus[@]}")  # (tar, pv)
-
-  # Phase 2: spinner while 7zz is still compressing/writing
-  if kill -0 "$PID7zz" 2>/dev/null; then
-    local frames=('|' '/' '-' '\')
-    local i=1
-    while kill -0 "$PID7zz" 2>/dev/null; do
-      printf "\rFinishing compression… %s" "${frames[i]}"
-      i=$(( i % ${#frames} + 1 ))
-      sleep 0.12
-    done
-    tput cr && tput el
-  fi
-
-  wait "$PID7zz"
-  ST7zz=$?
-
-  STATUSES=("${ST_PACK[@]}" "$ST7zz")
-
-  trap - INT TERM HUP EXIT
-  cleanup >/dev/null 2>&1 || true
-
-  check_pipeline_tar_pv_7zz "${STATUSES[@]}"
+    return $EXIT_CODE
 }
 
-show_help() {
-  cat << 'EOF'
-NAME
-	arch.sh — archive or unarchive .tar.7z files
+tar_pv_7zz_with_two_phase_progress() {
+    local TMPDIR FIFO PID7zz ST7zz
+    local -a ST_PACK STATUSES
+    local TAR_OPTIONS
 
-SYNOPSIS
-	arch.sh [-a | -u] [-o destination] input_path
-	arch.sh -h | --help
+    TMPDIR="$(mktemp -d -t tar7zz)" || return 1
+    FIFO="$TMPDIR/stream.FIFO"
+    mkfifo "$FIFO" || { rmdir "$TMPDIR" 2>/dev/null; return 1; }
 
-DESCRIPTION
-	arch.sh archives or unarchives files using tar and 7-Zip
-	piped together, avoiding the creation of intermediate .tar
-	files.
+    # Cleanup on exit / ctrl-c
+    cleanup() {
+        local ec=$?
+        [[ -n "${PID7zz:-}" ]] && kill -0 "$PID7zz" 2>/dev/null && kill "$PID7zz" 2>/dev/null
+        rm -f "$FIFO" 2>/dev/null
+        rmdir "$TMPDIR" 2>/dev/null
+        return $ec
+    }
+    trap cleanup INT TERM HUP EXIT
 
-	The input_path specifies either the file, folder, or package
-	to be archived, or the .tar.7z archive to be unarchived.
+    PV_OPTIONS=(-N "${SOURCE_PATH:t}")
+    if [[ CHECK_FILE_SIZES == "true" ]];then
+        PV_OPTIONS+=(-s "$SOURCE_SIZE_BYTE" -ptebar)
+    else
+        PV_OPTIONS+=(-trab)
+    fi
 
-	Options may be specified in any order.
+    # Start 7zz consuming from FIFO in the background
+    7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" <"$FIFO" &
+    PID7zz=$!
 
-OPTIONS
-	-h, --help
-		Display this help and exit. All other arguments
-		are ignored.
+    # Phase 1: tar -> pv -> FIFO (foreground, so we can read $pipestatus)
+    tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null \
+    | pv "${PV_OPTIONS[@]}"\
+    >"$FIFO"
 
-	-a, --archive, -A, --Archive
-		Archive input_path into a .tar.7z file.
-        Skip user confirmation if -A or --Archive is specified.
+    ST_PACK=("${pipestatus[@]}")  # (tar, pv)
 
-	-u, --unarchive, -U, --Unarchive
-		Unarchive input_path, which must be a .tar.7z file.
-        Skip user confirmation if -U or --Unarchive is specified.
+    # Phase 2: spinner while 7zz is still compressing/writing
+    if kill -0 "$PID7zz" 2>/dev/null; then
+        local frames=('|' '/' '-' '\')
+        local i=1
+        while kill -0 "$PID7zz" 2>/dev/null; do
+            printf "\rFinishing compression… %s" "${frames[i]}"
+            i=$(( i % ${#frames} + 1 ))
+            sleep 0.12
+        done
+        tput cr && tput el
+    fi
 
-	-e, --encrypt
-		Use SHA-256 to encrypt the archive. The user will be asked
-		to enter the password during runtime.
-		
-	-E password, --Encrypt password
-		Use SHA-256 to encrypt the archive using the password
-		specified in the next argument. This method is highly
-		insecure and not reccommended.
-		
-		i.e. -E p55w0rd or --Encrypt pa55w0rd
-		
-	-f, --fast
-		Skip source and destination size determination.
-		
-		The check can take a long time for large directories with
-		a lot of files in them.
+    wait "$PID7zz"
+    ST7zz=$?
 
-	-d size, --dictionary size
-		Set a custom dictionary size (in MB) for compression.
-		
-		If not specified, a dictionary size of 256MB will be used.
-  
-    -t threads, --threads threads
-        Set a custom number of threads for compression.
-        This must be a number greater than 1, or can be
-        either "auto" or "on" for an automatic setting.
-        
-        If not specified, the automatic setting will be used.
+    STATUSES=("${ST_PACK[@]}" "$ST7zz")
 
-	-o destination, --output destination
-		Specify the destination directory.
+    trap - INT TERM HUP EXIT
+    cleanup >/dev/null 2>&1 || true
 
-		When archiving, the resulting .tar.7z file is written
-		to this directory.
+    check_pipeline_tar_pv_7zz "${STATUSES[@]}"
+}
 
-		When unarchiving, the archive contents are extracted
-		into this directory.
+tar_7zz() {
+    tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null | 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH"
+    if ! check_pipeline_tar_7zz "${pipestatus[@]}"; then
+        echo "Exiting."
+        exit 1
+    fi
+}
 
-		If not specified, the current working directory is used.
+prepare_a() {
+    if [[ $1 == "A" || $1 == "-A" || $1 == "-Archive" ]]; then
+        CONFIRMATION_NEEDED="false"
+    fi
+    if [[ $OPERATION == "none" ]]; then
+        OPERATION="archive"
+    else
+        echo "Archive and unarchive options both selected. Exiting."
+        exit 1
+    fi
+}
 
-OPERANDS
-	input_path
-		Path to the file, folder, or package to archive, or
-		the .tar.7z file to unarchive.
+prepare_u() {
+    if [[ $1 == "U" || $1 == "-U" || $1 == "-Unarchive" ]]; then
+        CONFIRMATION_NEEDED="false"
+    fi
+    if [[ $OPERATION == "none" ]]; then
+        OPERATION="unarchive"
+    else
+        echo "Archive and unarchive options both selected. Exiting."
+        exit 1
+    fi
+}
 
-NOTES
-	Exactly one of a/--archive or -u/--unarchive must be specified.
+prepare_e() {
+    echo "Error: -e/--encrypt option not yet implemented. Exiting."
+    exit 1
+    ENCRYPTION_SPECIFIED="true"
+    PASSWORD_SPECIFIED="false"
+}
 
-	The destination directory is optional and defaults to the
-	current working directory.
-
-EXAMPLES
-	Archive a folder into the current directory:
-		arch.sh -a MyFolder
-		
-	Archive a file into the current directory with a custom compression
-	dictionary size of 128MB:
-		arch.sh -a MyFile.txt -d 128
-
-	Archive a file to a specific directory:
-		arch.sh --archive file.txt --output ~/Archives
-
-	Unarchive into the current directory:
-		arch.sh -u backup.tar.7z
-
-	Unarchive into a specific directory and skip file size checks:
-		arch.sh -u backup.tar.7z -o ./output -f
-
-EOF
+prepare_f() {
+    CHECK_FILE_SIZES="false"
 }
 
 ### BEGINNING OF SCRIPT ####
@@ -314,38 +382,19 @@ while (( $# > 0 )); do
     case $ARG in
 		-h|--help)
 			show_help
-			exit 0
+            exit 0
             ;;
 		-a|--archive|-A|--Archive)
-            if [[ $ARG == "-A" || $ARG == "-Archive" ]]; then
-                CONFIRMATION_NEEDED="false"
-            fi
-			if [[ $OPERATION == "none" ]]; then
-				OPERATION="archive"
-			else
-				echo "Archive and unarchive options both selected. Exiting."
-				exit 1
-			fi
+            prepare_a $ARG
 			;;
 		-u|--unarchive|-U|-Unarchive)
-            if [[ $ARG == "-U" || $ARG == "-Unarchive" ]]; then
-                CONFIRMATION_NEEDED="false"
-            fi
-			if [[ $OPERATION == "none" ]]; then
-				OPERATION="unarchive"
-			else
-				echo "Archive and unarchive options both selected. Exiting."
-				exit 1
-			fi
+            prepare_u $ARG
 			;;
 		-f|--fast)
 			CHECK_FILE_SIZES="false"
 			;;
 		-e|--encrypt)
-            echo "Error: -e/--encrypt option not yet implemented. Exiting."
-            exit 1
-			ENCRYPTION_SPECIFIED="true"
-			PASSWORD_SPECIFIED="false"
+            prepare_e
 			;;
 		-E|--Encrypt)
             if [[ $ENCRYPTION_SPECIFIED == "false" ]]; then
@@ -429,15 +478,41 @@ while (( $# > 0 )); do
 			;;
 		*)
 			if [[ $ARG == -* ]]; then
-				echo "Error: Invalid argument detected: $ARG"
-				exit 1
-			fi
-			if [[ $SOURCE_SPECIFIED == "true" ]]; then
-				echo "Error: Multiple sources specified. Exiting."
-				exit 1
-			fi
-			SOURCE_PATH="$1"
-			SOURCE_SPECIFIED="true"
+                echo "SIMPLE ARG CLUSTER"
+                SIMPLE_ARGUMENTS=( ${(s::)${ARG:1}} )
+                for SIMPLE_ARG in "${SIMPLE_ARGUMENTS[@]}"; do
+                    case $SIMPLE_ARG in
+                        h)
+                            show_help
+                            exit 0
+                            ;;
+                        a|A)
+                            prepare_a $SIMPLE_ARG
+                            ;;
+                        u|U)
+                            prepare_u $SIMPLE_ARG
+                            ;;
+                        f)
+                            prepare_f
+                            ;;
+                        e)
+                            prepare_e
+                            ;;
+                        *)
+                            echo "Error: Invalid argument detected: $SIMPLE_ARG in $ARG"
+                            exit 1
+                            ;;
+                    esac
+                done
+			else
+                if [[ $SOURCE_SPECIFIED == "true" ]]; then
+                    echo "Error: Multiple sources specified. Exiting."
+                    exit 1
+                fi
+                SOURCE_PATH="$1"
+                SOURCE_SPECIFIED="true"
+            fi
+			
 			;;
 	esac
 
