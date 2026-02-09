@@ -38,7 +38,7 @@ Dependencies (not pre-installed with macOS):
 - **pv** (progress viewer)  
   Install: `brew install pv`
 - **brew** (Homebrew)**(*)**  
-  Install: `brew install pv`
+  Install: [See Homebrew website](https://brew.sh)
 
 **(*)** Technically not necessary to run the script, but likely to be the tool used to install `7zz` and `pv` with.
 
