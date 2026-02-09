@@ -111,6 +111,13 @@ Header data is always encrypted too if encryption is specified.
 - `-e`/`--encrypt`: **Not implemented yet (exits with an error).** Ask user for password interactively before en-/decrypting.
 - `-E <password>`/`--Encrypt <password>`: Use password specified in the following argument (`<password>`) for en-/decryption. See security warning above.
 
+### Compression tuning
+- `-d <MB>`/`--dictionary <MB>`: 7-Zip dictionary size in MB (default: 256).
+- `-t <threads|auto>`/`--Encrypt <threads|auto>`: Thread count for 7-zip (default: auto).
+
+## Progress bars
+The progress bars might not always be entirely accurate when using multiple threads.
+
 ## Examples
 ### Archive a folder (no prompt), and verify the resulting archive
 ```sh
