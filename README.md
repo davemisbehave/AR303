@@ -113,7 +113,7 @@ Header data is always encrypted too if encryption is specified.
 
 ### Compression tuning
 - `-d <MB>`/`--dictionary <MB>`: 7-Zip dictionary size in MB (default: 256).
-- `-t <threads|auto>`/`--Encrypt <threads|auto>`: Thread count for 7-zip (default: auto).
+- `-t <threads|auto>`/`--threads <threads|auto>`: Thread count for 7-zip (default: auto).
 
 ---
 
