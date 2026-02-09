@@ -34,6 +34,13 @@ OPTIONS
         Unarchive input_path, which must be a .tar.7z file.
         Skip user confirmation if -U or --Unarchive is specified.
 
+    -b, --binary
+        Display and interpret suffixes as multiples of 1024 (i.e.
+        MiB, GiB, etc.).
+        
+        If not specified, the default of 1000 (i.e. MB, GB, etc.)
+        will be used.
+        
     -i, --integrity
         Perform integrity check after creating an archive.
         
@@ -133,18 +140,28 @@ EOF
 }
 
 to_human() {
-	if (( "$1" < 0 )); then
-		local ABS_SIZE_BYTES=$(( "$1" * -1 ))
-		printf "-"
-	else
-		local ABS_SIZE_BYTES="$1"
-	fi
-    echo $ABS_SIZE_BYTES | awk '{
-        split("B KB MB GB TB", unit);
-        i=1;
-        while($1>=1024 && i<5) { $1/=1024; i++ }
-        printf "%.1f %s", $1, unit[i]
-    }'
+    if (( "$1" < 0 )); then
+        local ABS_SIZE_BYTES=$(( "$1" * -1 ))
+        printf "-"
+    else
+        local ABS_SIZE_BYTES="$1"
+    fi
+    
+    if [[ $SIZE_FORMAT == "binary" ]]; then
+        echo $ABS_SIZE_BYTES | awk '{
+            split("B KiB MiB GiB TiB", unit);
+            i=1;
+            while($1>=1024 && i<5) { $1/=1024; i++ }
+            printf "%.1f %s", $1, unit[i]
+        }'
+    else
+        echo $ABS_SIZE_BYTES | awk '{
+            split("B KB MB GB TB", unit);
+            i=1;
+            while($1>=1000 && i<5) { $1/=1000; i++ }
+            printf "%.1f %s", $1, unit[i]
+        }'
+    fi
 }
 
 get_size() {
@@ -276,6 +293,7 @@ tar_pv_7zz_with_two_phase_progress() {
     local TMPDIR FIFO PID7zz ST7zz
     local -a ST_PACK STATUSES
     local TAR_OPTIONS
+    local -a PV_OPTIONS
 
     TMPDIR="$(mktemp -d -t tar7zz)" || return 1
     FIFO="$TMPDIR/stream.FIFO"
@@ -290,13 +308,15 @@ tar_pv_7zz_with_two_phase_progress() {
         return $ec
     }
     trap cleanup INT TERM HUP EXIT
-
-    PV_OPTIONS=(-N "${SOURCE_PATH:t}")
-    if [[ CHECK_FILE_SIZES == "true" ]];then
+    
+    if [[ $CHECK_FILE_SIZES == "true" ]]; then
+        [[ $SIZE_FORMAT == "decimal" ]] && PV_OPTIONS+=(-k)
         PV_OPTIONS+=(-s "$SOURCE_SIZE_BYTE" -ptebar)
     else
         PV_OPTIONS+=(-trab)
     fi
+    PV_OPTIONS+=(-N "${SOURCE_PATH:t}")
+    
     [[ "$SILENT" == "true" ]] && PV_OPTIONS+=(-q)
 
     # Start 7zz consuming from FIFO in the background
@@ -361,6 +381,10 @@ prepare_u() {
     fi
 }
 
+prepare_b() {
+    SIZE_FORMAT="binary"
+}
+
 prepare_e() {
     echo "Error: -e/--encrypt option not yet implemented. Exiting." >&2
     exit 1
@@ -411,6 +435,7 @@ THREADS="on"
 THREADS_SPECIFIED="false"
 PERFORM_INTEGRITY_CHECK="false"
 SILENT="false"
+SIZE_FORMAT="decimal"
 
 while (( $# > 0 )); do
     ARG="$1"
@@ -426,6 +451,9 @@ while (( $# > 0 )); do
 		-u|--unarchive|-U|-Unarchive)
             prepare_u $ARG
 			;;
+        -b|--binary)
+            prepare_b
+            ;;
         -i|--integrity)
             prepare_i
             ;;
@@ -557,6 +585,9 @@ while (( $# > 0 )); do
                             ;;
                         u|U)
                             prepare_u $SIMPLE_ARG
+                            ;;
+                        b)
+                            prepare_b
                             ;;
                         i)
                             prepare_i
