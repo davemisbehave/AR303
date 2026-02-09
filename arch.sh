@@ -46,7 +46,10 @@ OPTIONS
         a lot of files in them.
         
     -s, --silent
-        Disable all output to stdout.
+        Disable all output to stdout. File size checks are also
+        skipped if this option is specified (as they would not
+        be visible anyways).
+        
         Error messages are still written to stderr.
 
     -e, --encrypt
@@ -102,22 +105,23 @@ OPERANDS
         the .tar.7z file to unarchive.
 
 NOTES
-    Exactly one of a/--archive or -u/--unarchive must be specified.
+    Exactly one of -a/--archive, -A/-Archive, -u/--unarchive or
+    -U/--Unarchive must be specified.
 
     The destination directory is optional and defaults to the
     current working directory.
 
 EXAMPLES
     Archive a folder into the current directory without asking the user
-    to confirm:
-        arch.sh -A MyFolder
+    to confirm, and perform an integrity check of the resulting archive:
+        arch.sh -Ai MyFolder
         
     Archive a file into the current directory with a custom compression
     dictionary size of 128MB:
         arch.sh -a MyFile.txt -d 128
 
     Archive a file to a specific directory with a specific name:
-        arch.sh --archive file.txt --O ~/Archives/foofile.txt.tar.7z
+        arch.sh --archive file.txt -O ~/Archives/foofile.txt.tar.7z
 
     Unarchive into the current directory:
         arch.sh -u backup.tar.7z
@@ -315,7 +319,7 @@ tar_pv_7zz_with_two_phase_progress() {
             i=$(( i % ${#frames} + 1 ))
             sleep 0.12
         done
-        tput cr && tput el
+        tput cr; tput el
     fi
 
     wait "$PID7zz"
@@ -338,9 +342,7 @@ tar_7zz() {
 }
 
 prepare_a() {
-    if [[ $1 == "A" || $1 == "-A" || $1 == "-Archive" ]]; then
-        CONFIRMATION_NEEDED="false"
-    fi
+    [[ $1 == "A" || $1 == "-A" || $1 == "-Archive" ]] && CONFIRMATION_NEEDED="false"
     if [[ $OPERATION == "none" ]]; then
         OPERATION="archive"
     else
@@ -350,9 +352,7 @@ prepare_a() {
 }
 
 prepare_u() {
-    if [[ $1 == "U" || $1 == "-U" || $1 == "-Unarchive" ]]; then
-        CONFIRMATION_NEEDED="false"
-    fi
+    if [[ $1 == "U" || $1 == "-U" || $1 == "-Unarchive" ]] && CONFIRMATION_NEEDED="false"
     if [[ $OPERATION == "none" ]]; then
         OPERATION="unarchive"
     else
@@ -379,6 +379,7 @@ prepare_f() {
 prepare_s() {
     exec > /dev/null
     SILENT="true"
+    prepare_f
 }
 
 ### BEGINNING OF SCRIPT ####
@@ -608,16 +609,13 @@ if [[ ! -e "$SOURCE_PATH" ]]; then
     exit 1
 fi
 
-if [[ $DESTINATION_SPECIFIED == "false" || $DESTINATION_SPECIFIED == "file" ]]; then
-	DESTINATION_DIR="$PWD"
-fi
+[[ $DESTINATION_SPECIFIED == "false" || $DESTINATION_SPECIFIED == "file" ]] && DESTINATION_DIR="$PWD"
 
 # Sanitize DESTINATION_DIR (remove trailing '/')
 DESTINATION_DIR=${DESTINATION_DIR:a}
 tput bold
 if [[ $OPERATION == "archive" ]]; then
-    [[ $DESTINATION_SPECIFIED == "folder" ]] && DESTINATION_FILE="${SOURCE_PATH:t}.tar.7z"
-    
+    [[ $DESTINATION_SPECIFIED == "folder" || $DESTINATION_SPECIFIED == "false" ]] && DESTINATION_FILE="${SOURCE_PATH:t}.tar.7z"
 	DESTINATION_PATH="${DESTINATION_DIR:a}/$DESTINATION_FILE"
 	printf "Archive ${SOURCE_PATH:t} to ${DESTINATION_PATH:t}\n"
 else
@@ -625,9 +623,7 @@ else
 	printf "Unarchive ${SOURCE_PATH:t} to ${DESTINATION_DIR:t}\n"
 fi
 tput sgr0
-if [[ $DICTIONARY_SIZE_SPECIFIED == "true" ]]; then
-	printf "Dictionary:\t%d MB\n" $DICTIONARY_SIZE
-fi
+[[ $DICTIONARY_SIZE_SPECIFIED == "true" ]] && printf "Dictionary:\t%d MB\n" $DICTIONARY_SIZE
 if [[ $THREADS_SPECIFIED == "true" ]]; then
     if [[ "$THREADS" == "on" ]]; then
         printf "Threads:\tautomatic\n"
@@ -647,7 +643,7 @@ if [[ $CHECK_FILE_SIZES == "true" ]]; then
 	printf "Determining Source Size..."
 	SOURCE_SIZE_BYTE=$(get_size $SOURCE_PATH)
 	SOURCE_SIZE=$(to_human $SOURCE_SIZE_BYTE)
-	tput cr && tput el
+	tput cr; tput el
 	printf "\rSource Size:\t$SOURCE_SIZE / $SOURCE_SIZE_BYTE bytes\n"
 fi
 if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
@@ -684,7 +680,7 @@ echo "\nStarting time:\t$(date)"
 if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
 	printf "Deleting pre-existing ${DESTINATION_PATH:t}..."
 	rm $DESTINATION_PATH
-	tput cr && tput el
+	tput cr; tput el
 fi
 mkdir -p "${DESTINATION_DIR:a}"
 # Record start time (epoch seconds)
@@ -694,9 +690,7 @@ if [[ $OPERATION == "archive" ]]; then
     ZIP_OPTIONS=(a -t7z -si -mx=9 -m0=lzma2 -md="${DICTIONARY_SIZE}m" -mmt="$THREADS" -bso0 -bsp0)
 	if [[ $ENCRYPTION_SPECIFIED == "true" ]]; then
         ZIP_OPTIONS+=("-mhe=on")
-		if [[ $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
-			ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
-		fi
+		[[ $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]] && ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
 	fi
  
     if ! tar_pv_7zz_with_two_phase_progress; then
@@ -709,7 +703,7 @@ if [[ $OPERATION == "archive" ]]; then
         ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
     fi
     if [[ $PERFORM_INTEGRITY_CHECK == "true" ]]; then
-        tput cr && tput el
+        tput cr; tput el
         echo "Performing archive integrity check..."
 
         if ! 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" > /dev/null; then
@@ -727,11 +721,11 @@ else
 
 	printf "Checking archive readability..."
 	if ! 7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" > /dev/null 2>&1; then
-		tput cr && tput el
+		tput cr; tput el
 		printf "\rArchive ${$SOURCE_PATH:t} could not be read. Exiting.\n" >&2
 		exit 1
 	fi
-	tput cr && tput el
+	tput cr; tput el
  
     ZIP_OPTIONS=(x -so -mmt="$THREADS")
     if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
@@ -749,10 +743,10 @@ printf "\n"
 
 if [[ $CHECK_FILE_SIZES == "true" ]]; then
     if [[ $OPERATION == "archive" ]]; then
-        #tput cr && tput el
+        #tput cr; tput el
         printf "\rDetermining archive size..."
     else
-        #tput cr && tput el
+        #tput cr; tput el
         printf "\rDetermining destination size..."
     fi
     
@@ -761,10 +755,10 @@ if [[ $CHECK_FILE_SIZES == "true" ]]; then
     PERCENTAGE=$(( (DESTINATION_SIZE_BYTE * 100.0) / SOURCE_SIZE_BYTE ))
     
     if [[ $OPERATION == "archive" ]]; then
-        tput cr && tput el
+        tput cr; tput el
         printf "\rArchive Size:\t"
     else
-        tput cr && tput el
+        tput cr; tput el
         printf "\rDestin. Size:\t"
     fi
     printf "$DESTINATION_SIZE / $DESTINATION_SIZE_BYTE bytes (%.1f%%)\n" "$PERCENTAGE"
