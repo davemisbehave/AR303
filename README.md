@@ -1,10 +1,4 @@
 # AR303
-Archive and Unarchive Utility
-
-
-
-It pipes `tar` into `7zz` for archiving, or `7zz` into `tar` for unarchiving.
-
 `arch.sh` is a small **zsh** utility for **archiving** and **unarchiving** using **tar** and **7-Zip** *streamed through pipes* — so you get a `.tar.7z` without ever creating an intermediate `.tar` on disk.
 
 It also integrates **pv** for progress output (including a two-phase “tar stream” + “finishing compression” spinner while `7zz` writes the last bits).
