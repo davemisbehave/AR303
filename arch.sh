@@ -130,8 +130,9 @@ EXAMPLES
     Archive a file to a specific directory with a specific name:
         arch.sh --archive file.txt -O ~/Archives/foofile.txt.tar.7z
 
-    Unarchive into the current directory:
-        arch.sh -u backup.tar.7z
+    Unarchive into the current directory and show file sizes in binary
+    format:
+        arch.sh -ub backup.tar.7z
 
     Unarchive into a specific directory and skip file size checks:
         arch.sh -uf backup.tar.7z -o ./output
@@ -293,7 +294,7 @@ tar_pv_7zz_with_two_phase_progress() {
     local TMPDIR FIFO PID7zz ST7zz
     local -a ST_PACK STATUSES
     local TAR_OPTIONS
-    local -a PV_OPTIONS
+    local -a PV_ARCHIVE_OPTIONS
 
     TMPDIR="$(mktemp -d -t tar7zz)" || return 1
     FIFO="$TMPDIR/stream.FIFO"
@@ -310,14 +311,14 @@ tar_pv_7zz_with_two_phase_progress() {
     trap cleanup INT TERM HUP EXIT
     
     if [[ $CHECK_FILE_SIZES == "true" ]]; then
-        [[ $SIZE_FORMAT == "decimal" ]] && PV_OPTIONS+=(-k)
-        PV_OPTIONS+=(-s "$SOURCE_SIZE_BYTE" -ptebar)
+        [[ $SIZE_FORMAT == "decimal" ]] && PV_ARCHIVE_OPTIONS+=(-k)
+        PV_ARCHIVE_OPTIONS+=(-s "$SOURCE_SIZE_BYTE" -ptebar)
     else
-        PV_OPTIONS+=(-trab)
+        PV_ARCHIVE_OPTIONS+=(-trab)
     fi
-    PV_OPTIONS+=(-N "${SOURCE_PATH:t}")
+    PV_ARCHIVE_OPTIONS+=(-N "${SOURCE_PATH:t}")
     
-    [[ "$SILENT" == "true" ]] && PV_OPTIONS+=(-q)
+    [[ "$SILENT" == "true" ]] && PV_ARCHIVE_OPTIONS+=(-q)
 
     # Start 7zz consuming from FIFO in the background
     7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" <"$FIFO" &
@@ -325,7 +326,7 @@ tar_pv_7zz_with_two_phase_progress() {
 
     # Phase 1: tar -> pv -> FIFO (foreground, so we can read $pipestatus)
     tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null \
-    | pv "${PV_OPTIONS[@]}"\
+    | pv "${PV_ARCHIVE_OPTIONS[@]}"\
     >"$FIFO"
 
     ST_PACK=("${pipestatus[@]}")  # (tar, pv)
@@ -718,33 +719,40 @@ mkdir -p "${DESTINATION_DIR:a}"
 START_EPOCH=$(date +%s)
 
 if [[ $OPERATION == "archive" ]]; then
+    # Set 7zz options for compression
     ZIP_OPTIONS=(a -t7z -si -mx=9 -m0=lzma2 -md="${DICTIONARY_SIZE}m" -mmt="$THREADS" -bso0 -bsp0)
 	if [[ $ENCRYPTION_SPECIFIED == "true" ]]; then
         ZIP_OPTIONS+=("-mhe=on")
 		[[ $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]] && ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
 	fi
- 
+    # Archive
     if ! tar_pv_7zz_with_two_phase_progress; then
         echo "Exiting."
         exit 1
     fi
     
-    ZIP_OPTIONS=(t -bso0 -bsp1)
-    if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
-        ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
-    fi
     if [[ $PERFORM_INTEGRITY_CHECK == "true" ]]; then
+        # Set 7zz options for integrity check
+        ZIP_OPTIONS=(t -bso0 -bsp1)
+        if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
+            ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
+        fi
+        
         tput cr; tput el
         echo "Performing archive integrity check..."
-
+        
+        # Check archive integrity
         if ! 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" > /dev/null; then
             printf "\rArchive ${DESTINATION_PATH:t} integrity could not be verified. Exiting.\n" >&2
             exit 1
         fi
+        # Clear current line and return carriage
         tput cr; tput el
+        # Move one line up, clear and return carriage
         tput cuu1; tput cr; tput el
     fi
 else
+    # Set 7zz options for arhive readability check
     ZIP_OPTIONS=(l)
     if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
         ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
@@ -758,12 +766,19 @@ else
 	fi
 	tput cr; tput el
  
+    # Set 7zz options for unarchiving
     ZIP_OPTIONS=(x -so -mmt="$THREADS")
     if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
         ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
     fi
- 
-	7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" | pv -s "$SOURCE_SIZE_BYTE" -N "${SOURCE_PATH:t}" | tar --acls --xattrs -C "$DESTINATION_DIR" -xf -
+    
+    # Set pv options for unarchiving
+    PV_UNARCHIVE_OPTIONS=()
+    [[ $SIZE_FORMAT == "decimal" ]] && PV_UNARCHIVE_OPTIONS+=(-k)
+    PV_UNARCHIVE_OPTIONS+=(-s "$SOURCE_SIZE_BYTE" -N "${SOURCE_PATH:t}")
+    
+    # Unarchive
+	7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" | pv "${PV_UNARCHIVE_OPTIONS[@]}" | tar --acls --xattrs -C "$DESTINATION_DIR" -xf -
 	if ! check_pipeline_7zz_pv_tar "${pipestatus[@]}"; then
 		echo "Exiting." >&2
 		exit 1
