@@ -294,7 +294,6 @@ tar_pv_7zz_with_two_phase_progress() {
     local TMPDIR FIFO PID7zz ST7zz
     local -a ST_PACK STATUSES
     local TAR_OPTIONS
-    local -a PV_ARCHIVE_OPTIONS
 
     TMPDIR="$(mktemp -d -t tar7zz)" || return 1
     FIFO="$TMPDIR/stream.FIFO"
@@ -310,15 +309,16 @@ tar_pv_7zz_with_two_phase_progress() {
     }
     trap cleanup INT TERM HUP EXIT
     
+    PV_OPTIONS=()
     if [[ $CHECK_FILE_SIZES == "true" ]]; then
-        [[ $SIZE_FORMAT == "decimal" ]] && PV_ARCHIVE_OPTIONS+=(-k)
-        PV_ARCHIVE_OPTIONS+=(-s "$SOURCE_SIZE_BYTE" -ptebar)
+        [[ $SIZE_FORMAT == "decimal" ]] && PV_OPTIONS+=(-k)
+        PV_OPTIONS+=(-s "$SOURCE_SIZE_BYTE" "$PV_OPTIONS_WITH_SIZE")
     else
-        PV_ARCHIVE_OPTIONS+=(-trab)
+        PV_OPTIONS+=("$PV_OPTIONS_WITHOUT_SIZE")
     fi
-    PV_ARCHIVE_OPTIONS+=(-N "${SOURCE_PATH:t}")
+    PV_OPTIONS+=(-N "${SOURCE_PATH:t}")
     
-    [[ "$SILENT" == "true" ]] && PV_ARCHIVE_OPTIONS+=(-q)
+    [[ "$SILENT" == "true" ]] && PV_OPTIONS+=(-q)
 
     # Start 7zz consuming from FIFO in the background
     7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" <"$FIFO" &
@@ -326,7 +326,7 @@ tar_pv_7zz_with_two_phase_progress() {
 
     # Phase 1: tar -> pv -> FIFO (foreground, so we can read $pipestatus)
     tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null \
-    | pv "${PV_ARCHIVE_OPTIONS[@]}"\
+    | pv "${PV_OPTIONS[@]}"\
     >"$FIFO"
 
     ST_PACK=("${pipestatus[@]}")  # (tar, pv)
@@ -437,6 +437,8 @@ THREADS_SPECIFIED="false"
 PERFORM_INTEGRITY_CHECK="false"
 SILENT="false"
 SIZE_FORMAT="decimal"
+PV_OPTIONS_WITH_SIZE="-ptebar"
+PV_OPTIONS_WITHOUT_SIZE="-trab"
 
 while (( $# > 0 )); do
     ARG="$1"
@@ -707,7 +709,8 @@ if [[ $CONFIRMATION_NEEDED == "true" ]]; then
 	}
 fi
 
-echo "\nStarting time:\t$(date)"
+# Display starting time
+echo "\nStart:\t\t$(date)"
 
 if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
 	printf "Deleting pre-existing ${DESTINATION_PATH:t}..."
@@ -773,19 +776,22 @@ else
     fi
     
     # Set pv options for unarchiving
-    PV_UNARCHIVE_OPTIONS=()
-    [[ $SIZE_FORMAT == "decimal" ]] && PV_UNARCHIVE_OPTIONS+=(-k)
-    PV_UNARCHIVE_OPTIONS+=(-s "$SOURCE_SIZE_BYTE" -N "${SOURCE_PATH:t}")
+    PV_OPTIONS=()
+    [[ $SIZE_FORMAT == "decimal" ]] && PV_OPTIONS+=(-k)
+    PV_OPTIONS+=(-N "${SOURCE_PATH:t}")
+    if [[ $CHECK_FILE_SIZES == "true" ]]; then
+        PV_OPTIONS+=(-s "$SOURCE_SIZE_BYTE" "$PV_OPTIONS_WITH_SIZE")
+    else
+        PV_OPTIONS+=("$PV_OPTIONS_WITHOUT_SIZE")
+    fi
     
     # Unarchive
-	7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" | pv "${PV_UNARCHIVE_OPTIONS[@]}" | tar --acls --xattrs -C "$DESTINATION_DIR" -xf -
+	7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" | pv "${PV_OPTIONS[@]}" | tar --acls --xattrs -C "$DESTINATION_DIR" -xf -
 	if ! check_pipeline_7zz_pv_tar "${pipestatus[@]}"; then
 		echo "Exiting." >&2
 		exit 1
 	fi
 fi
-
-printf "\n"
 
 if [[ $CHECK_FILE_SIZES == "true" ]]; then
     if [[ $OPERATION == "archive" ]]; then
@@ -795,27 +801,30 @@ if [[ $CHECK_FILE_SIZES == "true" ]]; then
         #tput cr; tput el
         printf "\rDetermining destination size..."
     fi
-    
     DESTINATION_SIZE_BYTE=$(get_size $DESTINATION_PATH)
     DESTINATION_SIZE=$(to_human $DESTINATION_SIZE_BYTE)
     PERCENTAGE=$(( (DESTINATION_SIZE_BYTE * 100.0) / SOURCE_SIZE_BYTE ))
-    
-    if [[ $OPERATION == "archive" ]]; then
-        tput cr; tput el
-        printf "\rArchive Size:\t"
-    else
-        tput cr; tput el
-        printf "\rDestin. Size:\t"
-    fi
-    printf "$DESTINATION_SIZE / $DESTINATION_SIZE_BYTE bytes (%.1f%%)\n" "$PERCENTAGE"
-    
-    SIZE_DIFFERENCE_BYTE=$(( DESTINATION_SIZE_BYTE - SOURCE_SIZE_BYTE ))
-    SIZE_DIFFERENCE=$(to_human $SIZE_DIFFERENCE_BYTE)
-    printf "Difference:\t$SIZE_DIFFERENCE / $SIZE_DIFFERENCE_BYTE bytes\n"
+    tput cr; tput el
 fi
+
+# Display finishing time
+echo "Finish:\t\t$(date)\n"
 
 # Record end time (epoch seconds)
 END_EPOCH=$(date +%s)
+
+if [[ $CHECK_FILE_SIZES == "true" ]]; then
+    if [[ $OPERATION == "archive" ]]; then
+        printf "Archive Size:\t"
+    else
+        tput cr; tput el
+        printf "Destin. Size:\t"
+    fi
+    printf "$DESTINATION_SIZE / $DESTINATION_SIZE_BYTE bytes\n"
+    SIZE_DIFFERENCE_BYTE=$(( DESTINATION_SIZE_BYTE - SOURCE_SIZE_BYTE ))
+    SIZE_DIFFERENCE=$(to_human $SIZE_DIFFERENCE_BYTE)
+    printf "Difference:\t$SIZE_DIFFERENCE / $SIZE_DIFFERENCE_BYTE bytes (%.1f%%)\n" "$PERCENTAGE"
+fi
 
 # Calculate elapsed time
 ELAPSED=$((END_EPOCH - START_EPOCH))
