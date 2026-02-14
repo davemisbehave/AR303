@@ -205,161 +205,232 @@ object_type() {
 	fi
 }
 
-check_7zz() {
-	if [[ $1 -eq 2 ]]; then
-		echo "Fatal error (check disk space or file permissions)"
-	elif [[ $1 -eq 8 ]]; then
-		echo "Not enough memory"
-	elif [[ $1 -eq 255 ]]; then
-		echo "User stopped the process"
-	else
-		echo "Unknown"
-	fi
+check_command() {
+    local COMMAND="$1"
+    local RET_VALUE="$2"
+    
+    case $COMMAND in
+        7zz)
+            case $RET_VALUE in
+                0)
+                    echo "No error (Success)"
+                    ;;
+                1)
+                    echo "Warning (non-fatal error)"    ## For example, files were locked by another application during compression
+                    ;;
+                2)
+                    echo "Fatal error"  # Check disk space or file permissions
+                    ;;
+                7)
+                    echo "Command line error"   # Bad parameters
+                    ;;
+                8)
+                    echo "Not enough memory"
+                    ;;
+                255)
+                    echo "User stopped the process" # [ctrl]+[c] or similar
+                    ;;
+                *)
+                    echo "Unknown"
+                    ;;
+            esac
+            ;;
+        pv)
+            case $RET_VALUE in
+                0)
+                    echo "No error (Success)"
+                    ;;
+                2)
+                    echo "One or more files could not be accessed, stat(2)ed, or opened"
+                    ;;
+                4)
+                    echo "An input file was the same as the output file"
+                    ;;
+                8)
+                    echo "Internal error with closing a file or moving to the next file"
+                    ;;
+                16)
+                    echo "There was an error while transferring data from one or more input files"
+                    ;;
+                32)
+                    echo "A signal was caught that caused an early exit"
+                    ;;
+                64)
+                    echo "Memory allocation failed"
+                    ;;
+                *)
+                    echo "Unknown"
+                    ;;
+            esac
+            ;;
+        tar)
+            case $RET_VALUE in
+                0)
+                    echo "No error (Success)"
+                    ;;
+                1)
+                    echo "Warning (some files differ, were busy, or couldn't be read, but the archive was still created)"
+                    ;;
+                2)
+                    echo "Fatal Error (e.g., directory not found, disk full)"
+                    ;;
+                *)
+                    echo "Unknown"
+                    ;;
+            esac
+            ;;
+        xz)
+            case $RET_VALUE in
+                0)
+                    echo "No error (Success)"
+                    ;;
+                1)
+                    echo "Error"
+                    ;;
+                2)
+                    echo "Warning"
+                    ;;
+                *)
+                    echo "Unknown"
+                    ;;
+            esac
+            ;;
+        *)
+            echo "Unknown command ($COMMAND)"
+            ;;
+    esac
 }
 
-check_tar() {
-	if [[ $1 -eq 1 ]]; then
-		echo "Warning (some files differ, were busy, or couldn't be read, but the archive was still created)"
-	elif [[ $1 -eq 2 ]]; then
-		echo "Fatal Error (e.g., directory not found, disk full)"
-	else
-		echo "Unknown"
-	fi
-}
+# Usage: check_pipeline "${pipestatus[@]}"
+check_pipeline() {
+    local statuses=("$@")
+    local exit_code=0
+    local commands=()
+    local command
 
-# Usage: check_pipeline_tar_pv_7zz "${pipestatus[@]}"
-check_pipeline_tar_pv_7zz() {
-    local STATUSES=("$@")
-    local EXIT_CODE=0
+    case $OPERATION in
+        archive)
+            commands+="tar"
+            commands+="pv"
+            case $COMPRESSION_SOFTWARE in
+                xz)
+                    commands+="xz"
+                    ;;
+                7zz)
+                    commands+="7zz"
+                    ;;
+                *)
+                    echo "Error: Invalid compression software: $COMPRESSION_SOFTWARE" >&2
+                    return 1
+                    ;;
+            esac
+            ;;
+        unarchive)
+            case $COMPRESSION_SOFTWARE in
+                xz)
+                    commands+="xz"
+                    ;;
+                7zz)
+                    commands+="7zz"
+                    ;;
+                *)
+                    echo "Error: Invalid compression software: $COMPRESSION_SOFTWARE" >&2
+                    return 1
+                    ;;
+            esac
+            commands+="pv"
+            commands+="tar"
+            ;;
+        *)
+            echo "Error: Invalid operation: $OPERATION" >&2
+            return 1
+            ;;
+    esac
+    
+    for command in {1..$#commands}
+    do
+        if [[ ${statuses[$command]} -ne 0 ]]; then
+            printf "\rError: Command ${commands[$command]} in pipeline failed with exit code ${statuses[$command]}: $(check_command ${commands[$command]} ${statuses[$command]})\n" >&2
+            exit_code=1
+        fi
+    done
 
-	if [[ ${STATUSES[1]} -ne 0 ]]; then
-		printf "\rError: Command tar in pipeline failed with exit code ${STATUSES[1]}: $(check_tar ${STATUSES[1]})\n" >&2
-		EXIT_CODE=1
-	fi
-
-	if [[ ${STATUSES[2]} -ne 0 ]]; then
-		printf "\rError: Command pv in pipeline failed with exit code ${STATUSES[2]}\n" >&2
-		EXIT_CODE=1
-	fi
- 
-    if [[ ${STATUSES[3]} -ne 0 ]]; then
-        printf "\rError: Command 7zz in pipeline failed with exit code ${STATUSES[2]}: $(check_7zz ${STATUSES[3]})\n" >&2
-        EXIT_CODE=1
-    fi
-
-    return $EXIT_CODE
-}
-
-# Usage: check_pipeline_7zz_pv_tar "${pipestatus[@]}"
-check_pipeline_7zz_pv_tar() {
-    local STATUSES=("$@")
-    local EXIT_CODE=0
-
-	if [[ ${STATUSES[1]} -ne 0 ]]; then
-		echo "Error: Command 7zz in pipeline failed with exit code ${STATUSES[1]}: $(check_7zz ${STATUSES[1]})\n" >&2
-		EXIT_CODE=1
-	fi
-
-    if [[ ${STATUSES[2]} -ne 0 ]]; then
-        echo "Error: Command pv in pipeline failed with exit code ${STATUSES[2]}\n" >&2
-        EXIT_CODE=1
-    fi
-
-	if [[ ${STATUSES[3]} -ne 0 ]]; then
-		echo "Error: Command tar in pipeline failed with exit code ${STATUSES[3]}: $(check_tar ${STATUSES[3]})\n" >&2
-		EXIT_CODE=1
-	fi
-
-    return $EXIT_CODE
-}
-
-check_pipeline_tar_7zz() {
-    local STATUSES=("$@")
-    local EXIT_CODE=0
-
-    if [[ ${STATUSES[1]} -ne 0 ]]; then
-        echo "Error: Command tar in pipeline failed with exit code ${STATUSES[1]}: $(check_tar ${STATUSES[1]})\n" >&2
-        EXIT_CODE=1
-    fi
-
-    if [[ ${STATUSES[2]} -ne 0 ]]; then
-        echo "Error: Command 7zz in pipeline failed with exit code ${STATUSES[2]}: $(check_7zz ${STATUSES[2]})\n" >&2
-        EXIT_CODE=1
-    fi
-
-    return $EXIT_CODE
+    return $exit_code
 }
 
 tar_pv_7zz_with_two_phase_progress() {
-    local TMPDIR FIFO PID7zz ST7zz
-    local -a ST_PACK STATUSES
-    local TAR_OPTIONS
+    emulate -L zsh
+    setopt localtraps
 
-    TMPDIR="$(mktemp -d -t tar7zz)" || return 1
-    FIFO="$TMPDIR/stream.FIFO"
-    mkfifo "$FIFO" || { rmdir "$TMPDIR" 2>/dev/null; return 1; }
+    local tmpdir fifo PID7zz ST7zz
+    local interrupted=0 packing=0
+    local -a st_pack statuses st_pack_on_int
+    local tar_options=(--acls --xattrs -C)
 
-    # Cleanup on exit / ctrl-c
+    tmpdir="$(mktemp -d -t tar7zz)" || return 1
+    fifo="$tmpdir/stream.fifo"
+    mkfifo "$fifo" || { rmdir "$tmpdir" 2>/dev/null; return 1; }
+
     cleanup() {
         local ec=$?
         [[ -n "${PID7zz:-}" ]] && kill -0 "$PID7zz" 2>/dev/null && kill "$PID7zz" 2>/dev/null
-        rm -f "$FIFO" 2>/dev/null
-        rmdir "$TMPDIR" 2>/dev/null
+        rm -f "$fifo" 2>/dev/null
+        rmdir "$tmpdir" 2>/dev/null
         return $ec
     }
-    trap cleanup INT TERM HUP EXIT
-    
-    PV_OPTIONS=()
-    if [[ $CHECK_FILE_SIZES == "true" ]]; then
-        [[ $SIZE_FORMAT == "decimal" ]] && PV_OPTIONS+=(-k)
-        PV_OPTIONS+=(-s "$SOURCE_SIZE_BYTE" "$PV_OPTIONS_WITH_SIZE")
-    else
-        PV_OPTIONS+=("$PV_OPTIONS_WITHOUT_SIZE")
-    fi
-    PV_OPTIONS+=(-N "${SOURCE_PATH:t}")
-    
+
+    on_int() {
+        interrupted=1
+        # Only meaningful during the tar|pv pipeline. Otherwise $pipestatus is 1-element garbage
+        if (( packing )); then
+            st_pack_on_int=("${pipestatus[@]}")   # (tar, pv)
+        fi
+        [[ -n "${PID7zz:-}" ]] && kill -INT "$PID7zz" 2>/dev/null
+        return 130
+    }
+
+    trap on_int INT
+    trap cleanup TERM HUP EXIT
+
+    PV_OPTIONS=(-N "${SOURCE_PATH:t}" -s "$SOURCE_SIZE_BYTE" "$PV_OPTIONS_WITH_SIZE")
     [[ "$SILENT" == "true" ]] && PV_OPTIONS+=(-q)
 
-    # Start 7zz consuming from FIFO in the background
-    7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" <"$FIFO" &
+    7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" <"$fifo" &
     PID7zz=$!
 
-    # Phase 1: tar -> pv -> FIFO (foreground, so we can read $pipestatus)
-    tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null \
-    | pv "${PV_OPTIONS[@]}"\
-    >"$FIFO"
+    # Phase 1: tar -> pv -> FIFO
+    packing=1
+    { tar "${tar_options[@]}" "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null | pv "${PV_OPTIONS[@]}"; } > "$fifo"
+    packing=0
 
-    ST_PACK=("${pipestatus[@]}")  # (tar, pv)
+    # Capture (tar,pv) reliably even if INT trap ran
+    if (( interrupted )) && (( ${#st_pack_on_int[@]} == 2 )); then
+        st_pack=("${st_pack_on_int[@]}")
+    else
+        st_pack=("${pipestatus[@]}")
+    fi
 
     # Phase 2: spinner while 7zz is still compressing/writing
     if kill -0 "$PID7zz" 2>/dev/null; then
-        local frames=('|' '/' '-' '\')
-        local i=1
-        while kill -0 "$PID7zz" 2>/dev/null; do
-            printf "\rFinishing compression… %s" "${frames[i]}"
-            i=$(( i % ${#frames} + 1 ))
-            sleep 0.12
-        done
-        tput cr; tput el
+    local frames=('|' '/' '-' '\') i=1
+    while kill -0 "$PID7zz" 2>/dev/null; do
+        printf "\rFinishing compression… %s" "${frames[i]}" >&2
+        i=$(( i % ${#frames} + 1 ))
+        sleep 0.12
+    done
+    printf "\r" >&2
+    tput el >&2
     fi
 
     wait "$PID7zz"
     ST7zz=$?
 
-    STATUSES=("${ST_PACK[@]}" "$ST7zz")
+    statuses=("${st_pack[@]}" "$ST7zz")
 
     trap - INT TERM HUP EXIT
     cleanup >/dev/null 2>&1 || true
 
-    check_pipeline_tar_pv_7zz "${STATUSES[@]}"
-}
-
-tar_7zz() {
-    tar --acls --xattrs -C "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null | 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH"
-    if ! check_pipeline_tar_7zz "${pipestatus[@]}"; then
-        echo "Exiting." >&2
-        exit 1
-    fi
+    check_pipeline "${statuses[@]}"
 }
 
 prepare_a() {
@@ -439,6 +510,7 @@ SILENT="false"
 SIZE_FORMAT="decimal"
 PV_OPTIONS_WITH_SIZE="-ptebar"
 PV_OPTIONS_WITHOUT_SIZE="-trab"
+COMPRESSION_SOFTWARE="7zz"
 
 while (( $# > 0 )); do
     ARG="$1"
@@ -787,7 +859,7 @@ else
     
     # Unarchive
 	7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" | pv "${PV_OPTIONS[@]}" | tar --acls --xattrs -C "$DESTINATION_DIR" -xf -
-	if ! check_pipeline_7zz_pv_tar "${pipestatus[@]}"; then
+	if ! check_pipeline "${pipestatus[@]}"; then
 		echo "Exiting." >&2
 		exit 1
 	fi
