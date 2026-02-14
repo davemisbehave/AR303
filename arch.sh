@@ -142,21 +142,21 @@ EOF
 
 to_human() {
     if (( "$1" < 0 )); then
-        local ABS_SIZE_BYTES=$(( "$1" * -1 ))
+        local abs_size_bytes=$(( "$1" * -1 ))
         printf "-"
     else
-        local ABS_SIZE_BYTES="$1"
+        local abs_size_bytes="$1"
     fi
     
-    if [[ $SIZE_FORMAT == "binary" ]]; then
-        echo $ABS_SIZE_BYTES | awk '{
+    if [[ $size_format == "binary" ]]; then
+        echo $abs_size_bytes | awk '{
             split("B KiB MiB GiB TiB", unit);
             i=1;
             while($1>=1024 && i<5) { $1/=1024; i++ }
             printf "%.1f %s", $1, unit[i]
         }'
     else
-        echo $ABS_SIZE_BYTES | awk '{
+        echo $abs_size_bytes | awk '{
             split("B KB MB GB TB", unit);
             i=1;
             while($1>=1000 && i<5) { $1/=1000; i++ }
@@ -166,18 +166,18 @@ to_human() {
 }
 
 get_size() {
-    local TARGET="$1"
+    local target="$1"
     
-    if [ -f "$TARGET" ]; then
+    if [ -f "$target" ]; then
         # If it's a file, just get its size
-        stat -f%z "$TARGET"
-    elif [ -d "$TARGET" ]; then
+        stat -f%z "$target"
+    elif [ -d "$target" ]; then
         # If it's a directory, sum the size of all files inside recursively
         # -type f: looks only for files (ignoring directory metadata size)
         # -print0 / -0: handles filenames with spaces correctly
-        find "$TARGET" -type f -print0 | xargs -0 stat -f%z | awk '{s+=$1} END {print s+0}'
+        find "$target" -type f -print0 | xargs -0 stat -f%z | awk '{s+=$1} END {print s+0}'
     else
-        echo "Error: $TARGET is not a valid file or directory" >&2
+        echo "Error: $target is not a valid file or directory" >&2
         return 1
     fi
     return 0
@@ -206,12 +206,12 @@ object_type() {
 }
 
 check_command() {
-    local COMMAND="$1"
-    local RET_VALUE="$2"
+    local cmd="$1"
+    local ret_val="$2"
     
-    case $COMMAND in
+    case $cmd in
         7zz)
-            case $RET_VALUE in
+            case $ret_val in
                 0)
                     echo "No error (Success)"
                     ;;
@@ -236,7 +236,7 @@ check_command() {
             esac
             ;;
         pv)
-            case $RET_VALUE in
+            case $ret_val in
                 0)
                     echo "No error (Success)"
                     ;;
@@ -264,7 +264,7 @@ check_command() {
             esac
             ;;
         tar)
-            case $RET_VALUE in
+            case $ret_val in
                 0)
                     echo "No error (Success)"
                     ;;
@@ -280,7 +280,7 @@ check_command() {
             esac
             ;;
         xz)
-            case $RET_VALUE in
+            case $ret_val in
                 0)
                     echo "No error (Success)"
                     ;;
@@ -296,7 +296,7 @@ check_command() {
             esac
             ;;
         *)
-            echo "Unknown command ($COMMAND)"
+            echo "Unknown command ($cmd)"
             ;;
     esac
 }
@@ -308,11 +308,11 @@ check_pipeline() {
     local commands=()
     local command
 
-    case $OPERATION in
+    case $operation in
         archive)
             commands+="tar"
             commands+="pv"
-            case $COMPRESSION_SOFTWARE in
+            case $compression_software in
                 xz)
                     commands+="xz"
                     ;;
@@ -320,13 +320,13 @@ check_pipeline() {
                     commands+="7zz"
                     ;;
                 *)
-                    echo "Error: Invalid compression software: $COMPRESSION_SOFTWARE" >&2
+                    echo "Error: Invalid compression software: $compression_software" >&2
                     return 1
                     ;;
             esac
             ;;
         unarchive)
-            case $COMPRESSION_SOFTWARE in
+            case $compression_software in
                 xz)
                     commands+="xz"
                     ;;
@@ -334,7 +334,7 @@ check_pipeline() {
                     commands+="7zz"
                     ;;
                 *)
-                    echo "Error: Invalid compression software: $COMPRESSION_SOFTWARE" >&2
+                    echo "Error: Invalid compression software: $compression_software" >&2
                     return 1
                     ;;
             esac
@@ -342,7 +342,7 @@ check_pipeline() {
             commands+="tar"
             ;;
         *)
-            echo "Error: Invalid operation: $OPERATION" >&2
+            echo "Error: Invalid operation: $operation" >&2
             return 1
             ;;
     esac
@@ -392,15 +392,17 @@ tar_pv_7zz_with_two_phase_progress() {
     trap on_int INT
     trap cleanup TERM HUP EXIT
 
-    PV_OPTIONS=(-N "${SOURCE_PATH:t}" -s "$SOURCE_SIZE_BYTE" "$PV_OPTIONS_WITH_SIZE")
-    [[ "$SILENT" == "true" ]] && PV_OPTIONS+=(-q)
+    pv_options=()
+    [[ $size_format == "decimal" ]] && pv_options+=(-k)
+    pv_options+=(-N "${source_path:t}" -s "$source_size_byte" "$pv_options_WITH_SIZE")
+    [[ "$silent" == "true" ]] && pv_options+=(-q)
 
-    7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" <"$fifo" &
+    7zz "${zip_options[@]}" "$destination_path" <"$fifo" &
     PID7zz=$!
 
     # Phase 1: tar -> pv -> FIFO
     packing=1
-    { tar "${tar_options[@]}" "${SOURCE_PATH:h}" -cf - "${SOURCE_PATH:t}" 2>/dev/null | pv "${PV_OPTIONS[@]}"; } > "$fifo"
+    { tar "${tar_options[@]}" "${source_path:h}" -cf - "${source_path:t}" 2>/dev/null | pv "${pv_options[@]}"; } > "$fifo"
     packing=0
 
     # Capture (tar,pv) reliably even if INT trap ran
@@ -434,9 +436,9 @@ tar_pv_7zz_with_two_phase_progress() {
 }
 
 prepare_a() {
-    [[ $1 == "A" || $1 == "-A" || $1 == "-Archive" ]] && CONFIRMATION_NEEDED="false"
-    if [[ $OPERATION == "none" ]]; then
-        OPERATION="archive"
+    [[ $1 == "A" || $1 == "-A" || $1 == "-Archive" ]] && confirmation_needed="false"
+    if [[ $operation == "none" ]]; then
+        operation="archive"
     else
         echo "Archive and unarchive options both selected. Exiting." >&2
         exit 1
@@ -444,9 +446,9 @@ prepare_a() {
 }
 
 prepare_u() {
-    if [[ $1 == "U" || $1 == "-U" || $1 == "-Unarchive" ]] && CONFIRMATION_NEEDED="false"
-    if [[ $OPERATION == "none" ]]; then
-        OPERATION="unarchive"
+    if [[ $1 == "U" || $1 == "-U" || $1 == "-Unarchive" ]] && confirmation_needed="false"
+    if [[ $operation == "none" ]]; then
+        operation="unarchive"
     else
         echo "Archive and unarchive options both selected. Exiting." >&2
         exit 1
@@ -454,27 +456,27 @@ prepare_u() {
 }
 
 prepare_b() {
-    SIZE_FORMAT="binary"
+    size_format="binary"
 }
 
 prepare_e() {
     echo "Error: -e/--encrypt option not yet implemented. Exiting." >&2
     exit 1
-    ENCRYPTION_SPECIFIED="true"
-    PASSWORD_SPECIFIED="false"
+    encryption_specified="true"
+    password_specified="false"
 }
 
 prepare_i() {
-    PERFORM_INTEGRITY_CHECK="true"
+    perform_integrity_check="true"
 }
 
 prepare_f() {
-    CHECK_FILE_SIZES="false"
+    check_file_sizes="false"
 }
 
 prepare_s() {
     exec > /dev/null
-    SILENT="true"
+    silent="true"
     prepare_f
 }
 
@@ -494,37 +496,37 @@ if ! command -v pv >/dev/null 2>&1; then
     exit 1
 fi
 
-OPERATION="none"
-SOURCE_SPECIFIED="false"
-DESTINATION_SPECIFIED="false"
-CONFIRMATION_NEEDED="true"
-DICTIONARY_SIZE=256
-DICTIONARY_SIZE_SPECIFIED="false"
-CHECK_FILE_SIZES="true"
-ENCRYPTION_SPECIFIED="false"
-PASSWORD_SPECIFIED="false"
-THREADS="on"
-THREADS_SPECIFIED="false"
-PERFORM_INTEGRITY_CHECK="false"
-SILENT="false"
-SIZE_FORMAT="decimal"
-PV_OPTIONS_WITH_SIZE="-ptebar"
-PV_OPTIONS_WITHOUT_SIZE="-trab"
-COMPRESSION_SOFTWARE="7zz"
+operation="none"
+source_specified="false"
+destination_specified="false"
+confirmation_needed="true"
+dictionary_size=256
+dictionary_size_specified="false"
+check_file_sizes="true"
+encryption_specified="false"
+password_specified="false"
+threads="on"
+threads_specified="false"
+perform_integrity_check="false"
+silent="false"
+size_format="decimal"
+pv_options_WITH_SIZE="-ptebar"
+pv_options_without_size="-trab"
+compression_software="7zz"
 
 while (( $# > 0 )); do
-    ARG="$1"
+    arg="$1"
 
-    case $ARG in
+    case $arg in
 		-h|--help)
 			show_help
             exit 0
             ;;
 		-a|--archive|-A|--Archive)
-            prepare_a $ARG
+            prepare_a $arg
 			;;
 		-u|--unarchive|-U|-Unarchive)
-            prepare_u $ARG
+            prepare_u $arg
 			;;
         -b|--binary)
             prepare_b
@@ -542,16 +544,16 @@ while (( $# > 0 )); do
             prepare_e
 			;;
 		-E|--Encrypt)
-            if [[ $ENCRYPTION_SPECIFIED == "false" ]]; then
+            if [[ $encryption_specified == "false" ]]; then
                 if (( $# > 1 )); then
                     # Store next argument (password)
-					ARCHIVE_PASSWORD="$2"
+					archive_password="$2"
                     # Skip the next argument in the next iteration
                     shift
 					# Flag encryption as specified
-					ENCRYPTION_SPECIFIED="true"
+					encryption_specified="true"
 					# Flag password as specified
-					PASSWORD_SPECIFIED="true"
+					password_specified="true"
                 else
                     echo "No password specified for -E/--Encrypt option. Exiting." >&2
                     exit 1
@@ -562,14 +564,14 @@ while (( $# > 0 )); do
 			fi
 			;;
 		-d|--dictionary)
-            if [[ $DICTIONARY_SIZE_SPECIFIED == "false" ]]; then
+            if [[ $dictionary_size_specified == "false" ]]; then
                 if (( $# > 1 )); then
                     # Store next argument (dictionary size)
-					DICTIONARY_SIZE="$2"
+					dictionary_size="$2"
                     # Skip the next argument in the next iteration
                     shift
 					# Flag dictionary size as specified
-					DICTIONARY_SIZE_SPECIFIED="true"
+					dictionary_size_specified="true"
                 else
                     echo "No dictionary size specified for -d/--dictionary option. Exiting." >&2
                     exit 1
@@ -580,20 +582,20 @@ while (( $# > 0 )); do
 			fi
 			;;
         -t|--threads)
-            if [[ $THREADS_SPECIFIED == "false" ]]; then
+            if [[ $threads_specified == "false" ]]; then
                 if (( $# > 1 )); then
                     # Store next argument (number of threads)
-                    THREADS="$2"
-                    if [[ "$THREADS" == "auto" ]]; then
-                        THREADS="on"
-                    elif [[ ! ( "$THREADS" == "on" || ( "$THREADS" =~ ^[0-9]+$ && "$THREADS" -ge 1 ) ) ]]; then
-                        printf "Error: %s is not a valid amount of threads. Exiting.\n" $THREADS >&2
+                    threads="$2"
+                    if [[ "$threads" == "auto" ]]; then
+                        threads="on"
+                    elif [[ ! ( "$threads" == "on" || ( "$threads" =~ ^[0-9]+$ && "$threads" -ge 1 ) ) ]]; then
+                        printf "Error: %s is not a valid amount of threads. Exiting.\n" $threads >&2
                         exit 1
                     fi
                     # Skip the next argument in the next iteration
                     shift
                     # Flag number of threads as specified
-                    THREADS_SPECIFIED="true"
+                    threads_specified="true"
                 else
                     echo "No amount of threads specified for -t/--threads option. Exiting." >&2
                     exit 1
@@ -604,14 +606,14 @@ while (( $# > 0 )); do
             fi
             ;;
 		-o|--output)
-            if [[ $DESTINATION_SPECIFIED == "false" ]]; then
+            if [[ $destination_specified == "false" ]]; then
                 if (( $# > 1 )); then
                     # Store next argument (destination path)
-					DESTINATION_DIR="$2"
+					destination_dir="$2"
                     # Skip the next argument in the next iteration
                     shift
 					# Flag destination as specified
-                    DESTINATION_SPECIFIED="folder"
+                    destination_specified="folder"
                 else
                     echo "No destination folder specified for -o/--output option. Exiting." >&2
                     exit 1
@@ -622,17 +624,17 @@ while (( $# > 0 )); do
 			fi
 			;;
         -O|--Output)
-            if [[ $DESTINATION_SPECIFIED == "false" ]]; then
+            if [[ $destination_specified == "false" ]]; then
                 if (( $# > 1 )); then
                     if [[ "$2" == */* ]]; then
-                        DESTINATION_DIR="${2:h}"
-                        DESTINATION_FILE="${2:t}"
+                        destination_dir="${2:h}"
+                        destination_file="${2:t}"
                         # Flag destination as file with path
-                        DESTINATION_SPECIFIED="path_and_file"
+                        destination_specified="path_and_file"
                     else
-                        DESTINATION_FILE="$2"
+                        destination_file="$2"
                         # Flag destination as just a file (without path)
-                        DESTINATION_SPECIFIED="file"
+                        destination_specified="file"
                     fi
                     
                     # Skip the next argument in the next iteration
@@ -647,19 +649,19 @@ while (( $# > 0 )); do
             fi
             ;;
 		*)
-			if [[ $ARG == -* ]]; then
-                SIMPLE_ARGUMENTS=( ${(s::)${ARG:1}} )
-                for SIMPLE_ARG in "${SIMPLE_ARGUMENTS[@]}"; do
-                    case $SIMPLE_ARG in
+			if [[ $arg == -* ]]; then
+                simple_arguments=( ${(s::)${arg:1}} )
+                for simple_arg in "${simple_arguments[@]}"; do
+                    case $simple_arg in
                         h)
                             show_help
                             exit 0
                             ;;
                         a|A)
-                            prepare_a $SIMPLE_ARG
+                            prepare_a $simple_arg
                             ;;
                         u|U)
-                            prepare_u $SIMPLE_ARG
+                            prepare_u $simple_arg
                             ;;
                         b)
                             prepare_b
@@ -677,18 +679,18 @@ while (( $# > 0 )); do
                             prepare_s
                             ;;
                         *)
-                            echo "Error: Invalid argument detected: $SIMPLE_ARG in $ARG.\nExitng." >&2
+                            echo "Error: Invalid argument detected: $simple_arg in $arg.\nExitng." >&2
                             exit 1
                             ;;
                     esac
                 done
 			else
-                if [[ $SOURCE_SPECIFIED == "true" ]]; then
+                if [[ $source_specified == "true" ]]; then
                     echo "Error: Multiple sources specified. Exiting." >&2
                     exit 1
                 fi
-                SOURCE_PATH="$1"
-                SOURCE_SPECIFIED="true"
+                source_path="$1"
+                source_specified="true"
             fi
 			;;
 	esac
@@ -697,85 +699,85 @@ while (( $# > 0 )); do
 	shift
 done
 
-if [[ $OPERATION == "none" ]]; then
+if [[ $operation == "none" ]]; then
 	echo "No operation was specified. Use -a/--archive or -u/--unarchive. Run $0 -h for help." >&2
 	echo "Exiting." >&2
 	exit 1
 fi
 
-if [[ $OPERATION == "unarchive" && ( $DESTINATION_SPECIFIED == "file" || $DESTINATION_SPECIFIED == "path_and_file" ) ]]; then
+if [[ $operation == "unarchive" && ( $destination_specified == "file" || $destination_specified == "path_and_file" ) ]]; then
     echo "Output file name cannot be specified with -O/--Output for an unarchiving operation." >&2
     echo "Try using the -o/-output option to specify a folder to unarchive to." >&2
     echo "Exiting." >&2
     exit 1
 fi
 
-if [[ ! -e "$SOURCE_PATH" ]]; then
-    echo "$SOURCE_PATH does not exist. Exiting." >&2
+if [[ ! -e "$source_path" ]]; then
+    echo "$source_path does not exist. Exiting." >&2
     exit 1
 fi
 
-[[ $DESTINATION_SPECIFIED == "false" || $DESTINATION_SPECIFIED == "file" ]] && DESTINATION_DIR="$PWD"
+[[ $destination_specified == "false" || $destination_specified == "file" ]] && destination_dir="$PWD"
 
-# Sanitize DESTINATION_DIR (remove trailing '/')
-DESTINATION_DIR=${DESTINATION_DIR:a}
+# Sanitize destination_dir (remove trailing '/')
+destination_dir=${destination_dir:a}
 tput bold
-if [[ $OPERATION == "archive" ]]; then
-    [[ $DESTINATION_SPECIFIED == "folder" || $DESTINATION_SPECIFIED == "false" ]] && DESTINATION_FILE="${SOURCE_PATH:t}.tar.7z"
-	DESTINATION_PATH="${DESTINATION_DIR:a}/$DESTINATION_FILE"
-	printf "Archive ${SOURCE_PATH:t} to ${DESTINATION_PATH:t}\n"
+if [[ $operation == "archive" ]]; then
+    [[ $destination_specified == "folder" || $destination_specified == "false" ]] && destination_file="${source_path:t}.tar.7z"
+	destination_path="${destination_dir:a}/$destination_file"
+	printf "Archive ${source_path:t} to ${destination_path:t}\n"
 else
-    DESTINATION_PATH="${DESTINATION_DIR:a}/${${${SOURCE_PATH:t}%.tar.7z}%.7z}"
-	printf "Unarchive ${SOURCE_PATH:t} to ${DESTINATION_DIR:t}\n"
+    destination_path="${destination_dir:a}/${${${source_path:t}%.tar.7z}%.7z}"
+	printf "Unarchive ${source_path:t} to ${destination_dir:t}\n"
 fi
 tput sgr0
-[[ $DICTIONARY_SIZE_SPECIFIED == "true" ]] && printf "Dictionary:\t%d MB\n" $DICTIONARY_SIZE
-if [[ $THREADS_SPECIFIED == "true" ]]; then
-    if [[ "$THREADS" == "on" ]]; then
+[[ $dictionary_size_specified == "true" ]] && printf "Dictionary:\t%d MB\n" $dictionary_size
+if [[ $threads_specified == "true" ]]; then
+    if [[ "$threads" == "on" ]]; then
         printf "Threads:\tautomatic\n"
     else
-        printf "Threads:\t%d\n" $THREADS
+        printf "Threads:\t%d\n" $threads
     fi
 fi
-printf "Source:\t\t%s\n" "$SOURCE_PATH"
+printf "Source:\t\t%s\n" "$source_path"
 
-if [[ $OPERATION == "archive" ]]; then
-    printf "Destination:\t%s\n" "$DESTINATION_PATH"
+if [[ $operation == "archive" ]]; then
+    printf "Destination:\t%s\n" "$destination_path"
 else
-    printf "Destination:\t%s\n" "$DESTINATION_DIR"
+    printf "Destination:\t%s\n" "$destination_dir"
 fi
 
-if [[ $CHECK_FILE_SIZES == "true" ]]; then
+if [[ $check_file_sizes == "true" ]]; then
 	printf "Determining Source Size..."
-	SOURCE_SIZE_BYTE=$(get_size $SOURCE_PATH)
-	SOURCE_SIZE=$(to_human $SOURCE_SIZE_BYTE)
+	source_size_byte=$(get_size $source_path)
+	source_size=$(to_human $source_size_byte)
 	tput cr; tput el
-	printf "\rSource Size:\t$SOURCE_SIZE / $SOURCE_SIZE_BYTE bytes\n"
+	printf "\rSource Size:\t$source_size / $source_size_byte bytes\n"
 fi
-if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
-	DESTINATION_TYPE="$(object_type $DESTINATION_PATH)"
-	if [[ $DESTINATION_TYPE == "file" ]]; then
-		echo "Warning: ${DESTINATION_PATH:t} exists and will be overwritten."
+if [[ -e $destination_path && $operation == "archive" ]]; then
+	destination_type="$(object_type $destination_path)"
+	if [[ $destination_type == "file" ]]; then
+		echo "Warning: ${destination_path:t} exists and will be overwritten."
 	else
-		echo "Warning: ${DESTINATION_PATH:t} exists and is not a file ($DESTINATION_TYPE). Exiting." >&2
+		echo "Warning: ${destination_path:t} exists and is not a file ($destination_type). Exiting." >&2
 		exit 1
 	fi
 fi
-if [[ -e $DESTINATION_DIR && $OPERATION == "unarchive" ]]; then
-	DESTINATION_TYPE="$(object_type $DESTINATION_DIR)"
-	if [[ $DESTINATION_TYPE != "directory" ]]; then
-		echo "Warning: ${DESTINATION_DIR:t} exists and is not a folder ($DESTINATION_TYPE). Exiting." >&2
+if [[ -e $destination_dir && $operation == "unarchive" ]]; then
+	destination_type="$(object_type $destination_dir)"
+	if [[ $destination_type != "directory" ]]; then
+		echo "Warning: ${destination_dir:t} exists and is not a folder ($destination_type). Exiting." >&2
 		exit 1
 	fi
 fi
 
-if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "false" && ! -t 0 && ! -e /dev/tty ]]; then
+if [[ $encryption_specified == "true" && $password_specified == "false" && ! -t 0 && ! -e /dev/tty ]]; then
   echo "Warning: No TTY available for secure password prompt."
 fi
 
-if [[ $CONFIRMATION_NEEDED == "true" ]]; then
-	read "?Confirm with 'y': " CONFIRMATION
-	[[ $CONFIRMATION == "y" ]] || {
+if [[ $confirmation_needed == "true" ]]; then
+	read "?Confirm with 'y': " confirmation
+	[[ $confirmation == "y" ]] || {
 		echo "User confirmation negative. Exiting." >&2
 		exit 1
 	}
@@ -784,21 +786,21 @@ fi
 # Display starting time
 echo "\nStart:\t\t$(date)"
 
-if [[ -e $DESTINATION_PATH && $OPERATION == "archive" ]]; then
-	printf "Deleting pre-existing ${DESTINATION_PATH:t}..."
-	rm $DESTINATION_PATH
+if [[ -e $destination_path && $operation == "archive" ]]; then
+	printf "Deleting pre-existing ${destination_path:t}..."
+	rm $destination_path
 	tput cr; tput el
 fi
-mkdir -p "${DESTINATION_DIR:a}"
+mkdir -p "${destination_dir:a}"
 # Record start time (epoch seconds)
-START_EPOCH=$(date +%s)
+start_epoch=$(date +%s)
 
-if [[ $OPERATION == "archive" ]]; then
+if [[ $operation == "archive" ]]; then
     # Set 7zz options for compression
-    ZIP_OPTIONS=(a -t7z -si -mx=9 -m0=lzma2 -md="${DICTIONARY_SIZE}m" -mmt="$THREADS" -bso0 -bsp0)
-	if [[ $ENCRYPTION_SPECIFIED == "true" ]]; then
-        ZIP_OPTIONS+=("-mhe=on")
-		[[ $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]] && ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
+    zip_options=(a -t7z -si -mx=9 -m0=lzma2 -md="${dictionary_size}m" -mmt="$threads" -bso0 -bsp0)
+	if [[ $encryption_specified == "true" ]]; then
+        zip_options+=("-mhe=on")
+		[[ $password_specified == "true" && -n "$archive_password" ]] && zip_options+=("-p${archive_password}")
 	fi
     # Archive
     if ! tar_pv_7zz_with_two_phase_progress; then
@@ -806,19 +808,19 @@ if [[ $OPERATION == "archive" ]]; then
         exit 1
     fi
     
-    if [[ $PERFORM_INTEGRITY_CHECK == "true" ]]; then
+    if [[ $perform_integrity_check == "true" ]]; then
         # Set 7zz options for integrity check
-        ZIP_OPTIONS=(t -bso0 -bsp1)
-        if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
-            ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
+        zip_options=(t -bso0 -bsp1)
+        if [[ $encryption_specified == "true" && $password_specified == "true" && -n "$archive_password" ]]; then
+            zip_options+=("-p${archive_password}")
         fi
         
         tput cr; tput el
         echo "Performing archive integrity check..."
         
         # Check archive integrity
-        if ! 7zz "${ZIP_OPTIONS[@]}" "$DESTINATION_PATH" > /dev/null; then
-            printf "\rArchive ${DESTINATION_PATH:t} integrity could not be verified. Exiting.\n" >&2
+        if ! 7zz "${zip_options[@]}" "$destination_path" > /dev/null; then
+            printf "\rArchive ${destination_path:t} integrity could not be verified. Exiting.\n" >&2
             exit 1
         fi
         # Clear current line and return carriage
@@ -828,54 +830,54 @@ if [[ $OPERATION == "archive" ]]; then
     fi
 else
     # Set 7zz options for arhive readability check
-    ZIP_OPTIONS=(l)
-    if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
-        ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
+    zip_options=(l)
+    if [[ $encryption_specified == "true" && $password_specified == "true" && -n "$archive_password" ]]; then
+        zip_options+=("-p${archive_password}")
     fi
 
 	printf "Checking archive readability..."
-	if ! 7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" > /dev/null 2>&1; then
+	if ! 7zz "${zip_options[@]}" "$source_path" > /dev/null 2>&1; then
 		tput cr; tput el
-		printf "\rArchive ${$SOURCE_PATH:t} could not be read. Exiting.\n" >&2
+		printf "\rArchive ${$source_path:t} could not be read. Exiting.\n" >&2
 		exit 1
 	fi
 	tput cr; tput el
  
     # Set 7zz options for unarchiving
-    ZIP_OPTIONS=(x -so -mmt="$THREADS")
-    if [[ $ENCRYPTION_SPECIFIED == "true" && $PASSWORD_SPECIFIED == "true" && -n "$ARCHIVE_PASSWORD" ]]; then
-        ZIP_OPTIONS+=("-p${ARCHIVE_PASSWORD}")
+    zip_options=(x -so -mmt="$threads")
+    if [[ $encryption_specified == "true" && $password_specified == "true" && -n "$archive_password" ]]; then
+        zip_options+=("-p${archive_password}")
     fi
     
     # Set pv options for unarchiving
-    PV_OPTIONS=()
-    [[ $SIZE_FORMAT == "decimal" ]] && PV_OPTIONS+=(-k)
-    PV_OPTIONS+=(-N "${SOURCE_PATH:t}")
-    if [[ $CHECK_FILE_SIZES == "true" ]]; then
-        PV_OPTIONS+=(-s "$SOURCE_SIZE_BYTE" "$PV_OPTIONS_WITH_SIZE")
+    pv_options=()
+    [[ $size_format == "decimal" ]] && pv_options+=(-k)
+    pv_options+=(-N "${source_path:t}")
+    if [[ $check_file_sizes == "true" ]]; then
+        pv_options+=(-s "$source_size_byte" "$pv_options_WITH_SIZE")
     else
-        PV_OPTIONS+=("$PV_OPTIONS_WITHOUT_SIZE")
+        pv_options+=("$pv_options_without_size")
     fi
     
     # Unarchive
-	7zz "${ZIP_OPTIONS[@]}" "$SOURCE_PATH" | pv "${PV_OPTIONS[@]}" | tar --acls --xattrs -C "$DESTINATION_DIR" -xf -
+	7zz "${zip_options[@]}" "$source_path" | pv "${pv_options[@]}" | tar --acls --xattrs -C "$destination_dir" -xf -
 	if ! check_pipeline "${pipestatus[@]}"; then
 		echo "Exiting." >&2
 		exit 1
 	fi
 fi
 
-if [[ $CHECK_FILE_SIZES == "true" ]]; then
-    if [[ $OPERATION == "archive" ]]; then
+if [[ $check_file_sizes == "true" ]]; then
+    if [[ $operation == "archive" ]]; then
         #tput cr; tput el
         printf "\rDetermining archive size..."
     else
         #tput cr; tput el
         printf "\rDetermining destination size..."
     fi
-    DESTINATION_SIZE_BYTE=$(get_size $DESTINATION_PATH)
-    DESTINATION_SIZE=$(to_human $DESTINATION_SIZE_BYTE)
-    PERCENTAGE=$(( (DESTINATION_SIZE_BYTE * 100.0) / SOURCE_SIZE_BYTE ))
+    destination_size_byte=$(get_size $destination_path)
+    destination_size=$(to_human $destination_size_byte)
+    percentage=$(( (destination_size_byte * 100.0) / source_size_byte ))
     tput cr; tput el
 fi
 
@@ -883,39 +885,39 @@ fi
 echo "Finish:\t\t$(date)\n"
 
 # Record end time (epoch seconds)
-END_EPOCH=$(date +%s)
+end_epoch=$(date +%s)
 
-if [[ $CHECK_FILE_SIZES == "true" ]]; then
-    if [[ $OPERATION == "archive" ]]; then
+if [[ $check_file_sizes == "true" ]]; then
+    if [[ $operation == "archive" ]]; then
         printf "Archive Size:\t"
     else
         tput cr; tput el
         printf "Destin. Size:\t"
     fi
-    printf "$DESTINATION_SIZE / $DESTINATION_SIZE_BYTE bytes\n"
-    SIZE_DIFFERENCE_BYTE=$(( DESTINATION_SIZE_BYTE - SOURCE_SIZE_BYTE ))
-    SIZE_DIFFERENCE=$(to_human $SIZE_DIFFERENCE_BYTE)
-    printf "Difference:\t$SIZE_DIFFERENCE / $SIZE_DIFFERENCE_BYTE bytes (%.1f%%)\n" "$PERCENTAGE"
+    printf "$destination_size / $destination_size_byte bytes\n"
+    size_difference_byte=$(( destination_size_byte - source_size_byte ))
+    size_difference=$(to_human $size_difference_byte)
+    printf "Difference:\t$size_difference / $size_difference_byte bytes (%.1f%%)\n" "$percentage"
 fi
 
 # Calculate elapsed time
-ELAPSED=$((END_EPOCH - START_EPOCH))
-DAYS=$((ELAPSED / 86400))
-REMAINDER=$((ELAPSED % 86400))
-HOURS=$((REMAINDER / 3600))
-REMAINDER=$((REMAINDER % 3600))
-MINUTES=$((REMAINDER / 60))
-SECONDS=$((REMAINDER % 60))
+elapsed=$((end_epoch - start_epoch))
+days=$((elapsed / 86400))
+remainder=$((elapsed % 86400))
+hours=$((remainder / 3600))
+remainder=$((remainder % 3600))
+minutes=$((remainder / 60))
+seconds=$((remainder % 60))
 
 # Print formatted duration
-if (( DAYS > 0 )); then
-	printf "Elapsed time:\t${DAYS}d ${HOURS}h ${MINUTES}m ${SECONDS}s\n"
-elif (( HOURS > 0 )); then
-	printf "Elapsed time:\t${HOURS}h ${MINUTES}m ${SECONDS}s\n"
-elif (( MINUTES > 0 )); then
-	printf "Elapsed time:\t${MINUTES}m ${SECONDS}s\n"
+if (( days > 0 )); then
+	printf "Elapsed time:\t${days}d ${hours}h ${minutes}m ${seconds}s\n"
+elif (( hours > 0 )); then
+	printf "Elapsed time:\t${hours}h ${minutes}m ${seconds}s\n"
+elif (( minutes > 0 )); then
+	printf "Elapsed time:\t${minutes}m ${seconds}s\n"
 else
-	printf "Elapsed time:\t${SECONDS}s\n"
+	printf "Elapsed time:\t${seconds}s\n"
 fi
 
 echo "klolthxbye"
