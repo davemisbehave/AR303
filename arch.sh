@@ -354,7 +354,7 @@ not_yet_implemented() {
 }
 
 prepare_a() {
-    [[ $1 == "A" || $1 == "-A" || $1 == "-Archive" ]] && confirmation_needed="false"
+    [[ $1 == "A" || $1 == "-A" || $1 == "--Archive" ]] && confirmation_needed="false"
     if [[ $operation == "none" ]]; then
         operation="archive"
     else
@@ -364,7 +364,7 @@ prepare_a() {
 }
 
 prepare_u() {
-    if [[ $1 == "U" || $1 == "-U" || $1 == "-Unarchive" ]] && confirmation_needed="false"
+    [[ $1 == "U" || $1 == "-U" || $1 == "--Unarchive" ]] && confirmation_needed="false"
     if [[ $operation == "none" ]]; then
         operation="unarchive"
     else
@@ -448,7 +448,7 @@ while (( $# > 0 )); do
 		-a|--archive|-A|--Archive)
             prepare_a $arg
 			;;
-		-u|--unarchive|-U|-Unarchive)
+		-u|--unarchive|-U|--Unarchive)
             prepare_u $arg
 			;;
         -b|--binary)
