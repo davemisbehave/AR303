@@ -1,7 +1,7 @@
 # AR303
-`arch.sh` is a small **zsh** utility for **archiving** and **unarchiving** using **tar** and **7-Zip** *streamed through pipes* — so you get a `.tar.7z` without ever creating an intermediate `.tar` on disk.
+`arch.sh` is a small **zsh** utility for **archiving** and **unarchiving** using **tar** and **xz** *streamed through pipes* — so you get a `.tar.xz` without ever creating an intermediate `.tar` on disk.
 
-It also integrates **pv** for progress output (including a two-phase “tar stream” + “finishing compression” spinner while `7zz` writes the last bits).
+It also integrates **pv** for progress output.
 
 ## WARNING
 This is another exercise to learn scripting. Do not rely on this software for anything serious. Use software written by someone who knows what they're doing if you need something more reliable and robust.
@@ -10,12 +10,12 @@ This is another exercise to learn scripting. Do not rely on this software for an
 
 ## Features
 
-- Create `.tar.7z` archives from files, folders (and “packages”) via streaming
-- Extract `.tar.7z` archives via streaming
+- Create `.tar.xz` archives from files, folders (and “packages”) via streaming
+- Extract `.tar.xz` archives via streaming
 - File permissions (etc.) are preserved
 - Progress bars (pv) with optional total-size estimates
 - Optional post-create integrity test
-- Optionally tunable 7-Zip dictionary size and thread count
+- Optionally tunable xz dictionary size and thread count
 - “Fast” mode to skip potentially slow size scans
 - “Silent” mode that suppresses stdout (errors still still go to stderr)
 
@@ -27,7 +27,7 @@ This script is written for **macOS only**.
 
 Dependencies (not pre-installed with macOS):
 
-- **7zz** (7-Zip)  
+- **7zz** (xz)  
   Install: `brew install sevenzip`
 - **pv** (progress viewer)  
   Install: `brew install pv`
@@ -68,11 +68,11 @@ Skip the user prompt (upper-case `-A` or `--Archive`)
 ### Unarchive
 With user confirmation prompt (lower-case `-u` or `--unarchive`)
 ```sh
-./arch.sh -u <archive.tar.7z>
+./arch.sh -u <archive.tar.xz>
 ```
 Skip the user confirmation prompt (upper-case `-U` or `--Unarchive`)
 ```sh
-./arch.sh -U <archive.tar.7z>
+./arch.sh -U <archive.tar.xz>
 ```
 
 ### Output destination
@@ -82,7 +82,7 @@ Skip the user confirmation prompt (upper-case `-U` or `--Unarchive`)
   - If you want a custom output file name _and_ directory for archiving, use only the `-O`/`-Output` option.
 - If no output is specified with either `-o`/`--output` or `-O`/`-Output`:
   - The current working directory is used as the output folder.
-  - If archiving, the resulting archive will have the name of the file/folder being archived with `.tar.7z` appended.
+  - If archiving, the resulting archive will have the name of the file/folder being archived with `.tar.xz` appended.
 
 ---
 
@@ -90,7 +90,7 @@ Skip the user confirmation prompt (upper-case `-U` or `--Unarchive`)
 
 ### Operation
 This is required. Pick exactly one.
-- `-a`/`--archive`: Archive input_path → *.tar.7z (asks for confirmation)
+- `-a`/`--archive`: Archive input_path → *.tar.xz (asks for confirmation)
 - `-A`/`--Archive`: Same as archive, **but no confirmation**
 
 ### Output control
@@ -106,14 +106,16 @@ If omitted, the current working directory is used.
 - `-i`/`--integrity`: After archiving, run an integrity check of the created archive (can be slow for large archives).
 
 ### Encryption
+**ENCRYPTION IS CURRENTLY NOT WORKING**
+
 Header data is always encrypted too if encryption is specified.
 **Warning:** The `-E`/`--Encrypt` option is problematic from a securty standpoint, and is therefore highly discouraged.
 - `-e`/`--encrypt`: **Not implemented yet (exits with an error).** Ask user for password interactively before en-/decrypting.
 - `-E <password>`/`--Encrypt <password>`: Use password specified in the following argument (`<password>`) for en-/decryption. See security warning above.
 
 ### Compression tuning
-- `-d <MB>`/`--dictionary <MB>`: 7-Zip dictionary size in MB (default: 256).
-- `-t <threads|auto>`/`--threads <threads|auto>`: Thread count for 7-zip (default: auto).
+- `-d <MiB>`/`--dictionary <MiB>`: xz dictionary size in MiB (default: 256).
+- `-t <threads|auto>`/`--threads <threads|auto>`: Thread count for xz.
 
 ---
 
@@ -133,13 +135,13 @@ The progress bars might not always be entirely accurate when using multiple thre
 ```
 ### Archive and write to a specific directory with a specific name
 ```sh
-./arch.sh --archive file.txt -O ~/Archives/file.txt.tar.7z
+./arch.sh --archive file.txt -O ~/Archives/file.txt.tar.xz
 ```
 ### Unarchive into the current directory using binary units
 ```sh
-./arch.sh -ub backup.tar.7z
+./arch.sh -ub backup.tar.xz
 ```
 ### Unarchive into a specific directory and skip size scanning
 ```sh
-./arch.sh -uf backup.tar.7z -o ./output
+./arch.sh -uf backup.tar.xz -o ./output
 ```
