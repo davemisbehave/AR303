@@ -27,22 +27,22 @@ This script is written for **macOS only**.
 
 Dependencies (not pre-installed with macOS):
 
-- **7zz** (xz)  
-  Install: `brew install sevenzip`
+- **xz** (compression software)  
+  Install: `brew install xz`
 - **pv** (progress viewer)  
   Install: `brew install pv`
 - **brew** (Homebrew)**(*)**  
   Install: [See Homebrew website](https://brew.sh)
 
-**(*)** Technically not necessary to run the script, but likely to be the tool used to install `7zz` and `pv` with.
+**(*)** Technically not necessary to run the script, but likely to be the tool used to install `xz` and `pv` with.
 
 ---
 
 ## Installation
 
-0. Install 7zz and pv
+0. Install xz and pv
 ```sh
-brew install sevenzip pv
+brew install xz pv
 ```
 1. Put `arch.sh` somewhere in your PATH (or keep it in a project folder).
 2. Make it executable:
