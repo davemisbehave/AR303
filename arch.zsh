@@ -710,10 +710,10 @@ start_epoch=$(date +%s)
 
 if [[ $operation == "archive" ]]; then
     xz_options=(
-        --threads="$threads"
         --lzma2=dict="${dictionary_size}MiB"
         --quiet
     )
+    [[ $threads_specified == "true" ]] && xz_options+=(--threads="$threads")
     tar_options=(--acls --xattrs)
     pv_options=()
     [[ $size_format == "decimal" ]] && pv_options+=(-k) # This needs to be specified before all other options
