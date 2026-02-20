@@ -356,8 +356,9 @@ destination_dir=${destination_dir:a}
 scratch_directory=${scratch_directory:a}
 
 destination_path="${destination_dir:P}/${${source_path:t}:r}.xz"
-
+tput bold
 echo "Converting ${source_path:t} to ${destination_path:t}"
+tput sgr0
 echo "Source:\t\t$source_path"
 echo "Scratch:\t$scratch_directory"
 echo "Destination:\t$destination_path"
@@ -372,9 +373,8 @@ fi
 if [[ $keep_7z_archive == "true" ]]; then
     echo "🔒 Source archive ${source_path:t} will be kept after conversion."
 else
-    printf "🗑️ Source archive ${source_path:t} "
     tput bold
-    printf "will be deleted after conversion.\n"
+    printf "🗑️ Source archive ${source_path:t} will be deleted after conversion.\n"
     tput sgr0
 fi
 
@@ -419,6 +419,8 @@ fi
 tmp_dir="$scratch_directory/temp$$"
 mkdir -p "$tmp_dir"
 
+echo "Extracting ${source_path:t}"
+
 cancel_unarchiving() {
     trap - INT TERM HUP
     
@@ -448,8 +450,10 @@ fi
 extracted_item="${${${source_path:t}:r}:r}"
 script_options+=(-O "$destination_path")
 
+echo "Creating ${destination_path:t}"
+
 # Re-pack data using xz
-./arch.zsh -A "$tmp_dir/$extracted_item" "${script_options[@]}"
+./arch.zsh -AP "$tmp_dir/$extracted_item" "${script_options[@]}"
 
 printf "Deleting temporary directory..."
 rm -rf "$tmp_dir"
