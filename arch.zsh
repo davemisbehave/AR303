@@ -329,6 +329,15 @@ check_archive_integrity() {
     return 0
 }
 
+restore_stdout_progress() {
+    # Temporarily restore output to stdout if only progress should be shown
+    [[ "$silent" == "progress" ]] && exec >&3
+}
+
+silence_stdout_progress() {
+    # Silence output to stdout if only progress should be shown
+    [[ "$silent" == "progress" ]] && exec > /dev/null
+}
 
 not_yet_implemented() {
     echo "Error: $1 not yet implemented. Exiting." >&2
@@ -375,6 +384,17 @@ prepare_f() {
 
 prepare_p() {
     delete_before_compressing="true"
+}
+
+prepare_P() {
+    # Save original stdout (FD 1) into FD 3
+    exec 3>&1
+    
+    # Redirect stdout to /dev/null
+    exec > /dev/null
+    
+    # Mark silent as true (except progress bars)
+    silent="progress"
 }
 
 prepare_s() {
@@ -443,6 +463,9 @@ while (( $# > 0 )); do
 			;;
         -p|--prior)
             prepare_p
+            ;;
+        -P|--Progress)
+            prepare_P
             ;;
         -s|--silent)
             prepare_s
@@ -585,6 +608,9 @@ while (( $# > 0 )); do
                         p)
                             prepare_p
                             ;;
+                        P)
+                            prepare_P
+                            ;;
                         e)
                             prepare_e
                             ;;
@@ -666,10 +692,12 @@ else
 fi
 
 if [[ $check_file_sizes == "true" ]]; then
+    restore_stdout_progress
 	printf "Determining Source Size..."
 	source_size_byte=$(get_size $source_path)
 	source_size=$(to_human $source_size_byte)
 	tput cr; tput el
+    silence_stdout_progress
 	printf "\rSource Size:\t$source_size / $source_size_byte bytes\n"
 fi
 if [[ -e $destination_path && $operation == "archive" ]]; then
@@ -719,6 +747,8 @@ if [[ $operation == "archive" ]]; then
     [[ $size_format == "decimal" ]] && pv_options+=(-k) # This needs to be specified before all other options
     pv_options+=(-N "${source_path:t}" -s "$source_size_byte" "$pv_options_WITH_SIZE")
     [[ "$silent" == "true" ]] && pv_options+=(-q)
+    
+    restore_stdout_progress
     
     if [[ $delete_before_compressing == "true" && -e $destination_path ]]; then
         printf "Deleting pre-existing ${destination_path:t}..."
@@ -775,6 +805,7 @@ if [[ $operation == "archive" ]]; then
         tput cuu1; tput cr; tput el
     fi
 else
+    restore_stdout_progress
 	printf "Checking archive readability..."
     if ! check_archive_integrity "$source_path"; then
 		tput cr; tput el
@@ -796,6 +827,7 @@ else
     else
         pv_options+=("$pv_options_without_size")
     fi
+    [[ "$silent" == "true" ]] && pv_options+=(-q)
     
     cancel_unarchiving() {
         trap - INT TERM HUP
@@ -824,7 +856,10 @@ else
 	fi
 fi
 
+silence_stdout_progress
+
 if [[ $check_file_sizes == "true" ]]; then
+    restore_stdout_progress
     if [[ $operation == "archive" ]]; then
         tput cr; tput el
         printf "\rDetermining archive size..."
@@ -836,6 +871,7 @@ if [[ $check_file_sizes == "true" ]]; then
     destination_size=$(to_human $destination_size_byte)
     percentage=$(( (destination_size_byte * 100.0) / source_size_byte ))
     tput cr; tput el
+    silence_stdout_progress
 fi
 
 # Display finishing time
