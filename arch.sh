@@ -53,7 +53,14 @@ OPTIONS
         
         The check can take a long time for large directories with
         a lot of files in them.
+ 
+     -p, --prior
+        When overwriting existing archives, delete the pre-existing
+        archive prior to creating the new archive.
         
+        If omitted, the pre-existing archive will only be deleted
+        after the new one has been created.
+ 
     -s, --silent
         Disable all output to stdout. File size checks are also
         skipped if this option is specified (as they would not
@@ -215,31 +222,6 @@ check_command() {
     local ret_val="$2"
     
     case $cmd in
-        7zz)
-            case $ret_val in
-                0)
-                    echo "No error (Success)"
-                    ;;
-                1)
-                    echo "Warning (non-fatal error)"    ## For example, files were locked by another application during compression
-                    ;;
-                2)
-                    echo "Fatal error"  # Check disk space or file permissions
-                    ;;
-                7)
-                    echo "Command line error"   # Bad parameters
-                    ;;
-                8)
-                    echo "Not enough memory"
-                    ;;
-                255)
-                    echo "User stopped the process" # [ctrl]+[c] or similar
-                    ;;
-                *)
-                    echo "Unknown"
-                    ;;
-            esac
-            ;;
         pv)
             case $ret_val in
                 0)
@@ -391,6 +373,10 @@ prepare_f() {
     check_file_sizes="false"
 }
 
+prepare_p() {
+    delete_before_compressing="true"
+}
+
 prepare_s() {
     exec > /dev/null
     silent="true"
@@ -398,13 +384,6 @@ prepare_s() {
 }
 
 ### BEGINNING OF SCRIPT ####
-
-# Ensure 7zz exists
-#if ! command -v 7zz >/dev/null 2>&1; then
-#	tput bold; echo "7zz not installed." >&2; tput sgr0
-#	echo "Install with: brew install sevenzip" >&2
-#    exit 1
-#fi
 
 # Ensure xz exists
 if ! command -v xz >/dev/null 2>&1; then
@@ -435,6 +414,8 @@ silent="false"
 size_format="decimal"
 pv_options_WITH_SIZE="-ptebar"
 pv_options_without_size="-trab"
+delete_before_compressing="false"
+
 typeset -a pipe_st
 
 while (( $# > 0 )); do
@@ -460,6 +441,9 @@ while (( $# > 0 )); do
 		-f|--fast)
             prepare_f
 			;;
+        -p|--prior)
+            prepare_p
+            ;;
         -s|--silent)
             prepare_s
             ;;
@@ -598,6 +582,9 @@ while (( $# > 0 )); do
                         f)
                             prepare_f
                             ;;
+                        p)
+                            prepare_p
+                            ;;
                         e)
                             prepare_e
                             ;;
@@ -640,6 +627,11 @@ fi
 
 if [[ ! -e "$source_path" ]]; then
     echo "$source_path does not exist. Exiting." >&2
+    exit 1
+fi
+
+if [[ $operation != "archive" && $delete_before_compressing == "true" ]]; then
+    echo "-p/--prior option only applies to archiving. Exiting." >&2
     exit 1
 fi
 
@@ -712,11 +704,6 @@ fi
 # Display starting time
 echo "\nStart:\t\t$(date)"
 
-#if [[ -e $destination_path && $operation == "archive" ]]; then
-#	printf "Deleting pre-existing ${destination_path:t}..."
-#	rm $destination_path
-#	tput cr; tput el
-#fi
 mkdir -p "${destination_dir:a}"
 # Record start time (epoch seconds)
 start_epoch=$(date +%s)
@@ -732,6 +719,12 @@ if [[ $operation == "archive" ]]; then
     [[ $size_format == "decimal" ]] && pv_options+=(-k) # This needs to be specified before all other options
     pv_options+=(-N "${source_path:t}" -s "$source_size_byte" "$pv_options_WITH_SIZE")
     [[ "$silent" == "true" ]] && pv_options+=(-q)
+    
+    if [[ $delete_before_compressing == "true" && -e $destination_path ]]; then
+        printf "Deleting pre-existing ${destination_path:t}..."
+        rm $destination_path
+        tput cr; tput el
+    fi
     
     tmp="${destination_path}.part.$$"
     

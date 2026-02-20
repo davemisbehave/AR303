@@ -97,7 +97,8 @@ This is required. Pick exactly one.
 You can not specify both `-o`/`--output` and `-O`/`-Output` at the same time.
 If omitted, the current working directory is used.
 - `-o <dir>`, `--output <dir>`: Destination directory.
-- `-O <name-or-path>`, `--Output <name-or-path>`: Output archive file name (_archive only_).
+- `-O <name-or-path>`, `--Output <name-or-path>` (_archive only_): Output archive file name.
+- `-p, --prior` (_archive only_): When overwriting existing archives, delete the pre-existing archive prior to creating the new archive. If omitted, the pre-existing archive will only be deleted _after_ the new one has been created.
 
 ### Miscallaneous options
 - `-f`/`--fast`: Skip determining source/destination sizes (useful for huge directories).
@@ -116,11 +117,6 @@ Header data is always encrypted too if encryption is specified.
 ### Compression tuning
 - `-d <MiB>`/`--dictionary <MiB>`: xz dictionary size in MiB (default: 256).
 - `-t <threads|auto>`/`--threads <threads|auto>`: Thread count for xz.
-
----
-
-## Progress bars
-The progress bars might not always be entirely accurate when using multiple threads.
 
 ---
 
