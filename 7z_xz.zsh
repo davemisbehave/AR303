@@ -204,6 +204,10 @@ prepare_k() {
     keep_7z_archive="true"
 }
 
+prepare_arch_s() {
+    arch_silent="true"
+}
+
 # Ensure 7zz exists
 if ! command -v 7zz >/dev/null 2>&1; then
     tput bold; echo "7zz not installed." >&2; tput sgr0
@@ -221,6 +225,7 @@ size_format="decimal"
 check_file_sizes="true"
 pv_options_WITH_SIZE="-ptbar"
 pv_options_without_size="-trab"
+arch_silent="false"
 script_options=()
 
 while (( $# > 0 )); do
@@ -348,39 +353,56 @@ while (( $# > 0 )); do
     shift
 done
 
-if [[ $options_specified == true ]]; then
-    for arch_option in {1..$#script_options}
+if [[ $options_specified == "true" ]]; then
+    for arch_option in "${script_options[@]}"
     do
-        case $script_options[$arch_option] in
+        case $arch_option in
             -h|--help)
                 show_arch_help
                 ;;
             -a|--archive|-A|--Archive|-u|--unarchive|-U|--Unarchive|-e|--encrypt|-E|--Encrypt|-o|--output|-O|--Output)
-                echo "Error: $script_options[$arch_option] specified in -O options ($script_options).\nExiting." >&2
+                echo "Error: $arch_option specified in -O options ($script_options).\nExiting." >&2
                 exit 1
                 ;;
+            -s|--silent)
+                prepare_arch_s
+                ;;
+            -d|--dictionary)
+            
+                ;;
+            -t|--threads)
+            
+                ;;
+            -b|--binary|-i|--integrity|-f|--fast|-p|--prior|-P|--Progress)
+                # Allow and ignore
+                ;;
+            -*)
+                simple_arguments=( ${(s::)${arch_option:1}} )
+                for simple_arg in "${simple_arguments[@]}"; do
+                    case $simple_arg in
+                        h)
+                            show_arch_help
+                            ;;
+                        a|A|u|U|e)
+                            echo "detected $simple_arg in $arch_option"
+                            echo "Error: '$simple_arg' specified in argument cluster $arch_option, found in -O options (${script_options[@]}).\nExiting." >&2
+                            exit 1
+                            ;;
+                        s)
+                            prepare_arch_s
+                            ;;
+                        b|i|f|p|P)
+                            # Allow and ignore
+                            ;;
+                        *)
+                            echo "Error: Invalid argument detected: '$simple_arg' in argument cluster $arch_option, found in -O options (${script_options[@]}).\nExitng." >&2
+                            exit 1
+                            ;;
+                    esac
+                done
+                ;;
             *)
-                if [[ $script_options[$arch_option] == -* ]]; then
-                    simple_arguments=( ${(s::)${script_options[$arch_option]:1}} )
-                    for simple_arg in "${simple_arguments[@]}"; do
-                        case $simple_arg in
-                            h)
-                                show_arch_help
-                                ;;
-                            a|A|u|U|e)
-                                echo "detected $simple_arg in $script_options[$arch_option]"
-                                echo "Error: $simple_arg specified in argument cluster $script_options[$arch_option], found in -O options (${script_options[@]}).\nExiting." >&2
-                                exit 1
-                                ;;
-                            *)
-                                echo "Error: Invalid argument detected: $simple_arg in argument cluster $script_options[$arch_option], found in -O options (${script_options[@]}).\nExitng." >&2
-                                exit 1
-                                ;;
-                        esac
-                    done
-                else
-                    echo "🤷‍♂️ $script_options[$arch_option] 🤷‍♂️"
-                fi
+                echo "🤷‍♂️ $arch_option 🤷‍♂️"
                 ;;
         esac
 
@@ -493,20 +515,19 @@ fi
 
 extracted_item="${${${source_path:t}:r}:r}"
 script_options+=(-O "$destination_path")
+[[ $arch_silent == "false" ]] && script_options+=(-P)
 
 if [[ $check_file_sizes == "true" ]]; then
     printf "Determining unarchived size..."
     unarchived_size_byte=$(get_size "$tmp_dir")
     unarchived_size=$(to_human $unarchived_size_byte)
     tput cr; tput el
-else
-    script_options+=(-f)
 fi
 
 echo "Creating ${destination_path:t}"
 
 # Re-pack data using xz
-./arch.zsh -AP "$tmp_dir/$extracted_item" "${script_options[@]}"
+./arch.zsh -A "$tmp_dir/$extracted_item" "${script_options[@]}"
 
 printf "Deleting temporary directory..."
 rm -rf "$tmp_dir"

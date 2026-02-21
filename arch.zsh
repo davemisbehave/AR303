@@ -387,19 +387,32 @@ prepare_p() {
 }
 
 prepare_P() {
+    # Check if silent mode has been specified
+    if [[ $silent == "true"]]; then
+        echo "Error: You can not specify -P and -s at the same time. Exiting." >&2
+        exit 1
+    else
+        # Mark silent as "progress"
+        silent="progress"
+    fi
+
     # Save original stdout (FD 1) into FD 3
     exec 3>&1
     
     # Redirect stdout to /dev/null
     exec > /dev/null
-    
-    # Mark silent as true (except progress bars)
-    silent="progress"
 }
 
 prepare_s() {
+    # Check if progress mode has been specified
+    if [[ $silent == "progress"]]; then
+        echo "Error: You can not specify -P and -s at the same time. Exiting." >&2
+        exit 1
+    else
+        # Mark silent as true
+        silent="true"
+    fi
     exec > /dev/null
-    silent="true"
     prepare_f
 }
 
@@ -581,56 +594,55 @@ while (( $# > 0 )); do
                 exit 1
             fi
             ;;
+        -*)
+            simple_arguments=( ${(s::)${arg:1}} )
+            for simple_arg in "${simple_arguments[@]}"; do
+                case $simple_arg in
+                    h)
+                        show_help
+                        exit 0
+                        ;;
+                    a|A)
+                        prepare_a $simple_arg
+                        ;;
+                    u|U)
+                        prepare_u $simple_arg
+                        ;;
+                    b)
+                        prepare_b
+                        ;;
+                    i)
+                        prepare_i
+                        ;;
+                    f)
+                        prepare_f
+                        ;;
+                    p)
+                        prepare_p
+                        ;;
+                    P)
+                        prepare_P
+                        ;;
+                    e)
+                        prepare_e
+                        ;;
+                    s)
+                        prepare_s
+                        ;;
+                    *)
+                        echo "Error: Invalid argument detected: $simple_arg in $arg.\nExitng." >&2
+                        exit 1
+                        ;;
+                esac
+            done
+            ;;
 		*)
-			if [[ $arg == -* ]]; then
-                simple_arguments=( ${(s::)${arg:1}} )
-                for simple_arg in "${simple_arguments[@]}"; do
-                    case $simple_arg in
-                        h)
-                            show_help
-                            exit 0
-                            ;;
-                        a|A)
-                            prepare_a $simple_arg
-                            ;;
-                        u|U)
-                            prepare_u $simple_arg
-                            ;;
-                        b)
-                            prepare_b
-                            ;;
-                        i)
-                            prepare_i
-                            ;;
-                        f)
-                            prepare_f
-                            ;;
-                        p)
-                            prepare_p
-                            ;;
-                        P)
-                            prepare_P
-                            ;;
-                        e)
-                            prepare_e
-                            ;;
-                        s)
-                            prepare_s
-                            ;;
-                        *)
-                            echo "Error: Invalid argument detected: $simple_arg in $arg.\nExitng." >&2
-                            exit 1
-                            ;;
-                    esac
-                done
-			else
-                if [[ $source_specified == "true" ]]; then
-                    echo "Error: Multiple sources specified. Exiting." >&2
-                    exit 1
-                fi
-                source_path="$1"
-                source_specified="true"
+            if [[ $source_specified == "true" ]]; then
+                echo "Error: Multiple sources specified. Exiting." >&2
+                exit 1
             fi
+            source_path="$1"
+            source_specified="true"
 			;;
 	esac
 
@@ -643,6 +655,8 @@ if [[ $operation == "none" ]]; then
 	echo "Exiting." >&2
 	exit 1
 fi
+
+if [[  ]]
 
 if [[ $operation == "unarchive" && ( $destination_specified == "file" || $destination_specified == "path_and_file" ) ]]; then
     echo "Output file name cannot be specified with -O/--Output for an unarchiving operation." >&2
