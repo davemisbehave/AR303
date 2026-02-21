@@ -386,7 +386,6 @@ if [[ $options_specified == "true" ]]; then
                             show_arch_help
                             ;;
                         a|A|u|U|e)
-                            echo "detected $simple_arg in $script_options[$i]"
                             echo "Error: '$simple_arg' specified in argument cluster $script_options[$i], found in -O options (${script_options[@]}).\nExiting." >&2
                             exit 1
                             ;;
