@@ -6,6 +6,11 @@ show_help() {
     echo "I like turtles."
 }
 
+show_arch_help() {
+    ./arch.zsh -h
+    exit 1
+}
+
 to_human() {
     if (( "$1" < 0 )); then
         local abs_size_bytes=$(( "$1" * -1 ))
@@ -342,6 +347,45 @@ while (( $# > 0 )); do
     # Move to the next argument
     shift
 done
+
+if [[ $options_specified == true ]]; then
+    for arch_option in {1..$#script_options}
+    do
+        case $script_options[$arch_option] in
+            -h|--help)
+                show_arch_help
+                ;;
+            -a|--archive|-A|--Archive|-u|--unarchive|-U|--Unarchive|-e|--encrypt|-E|--Encrypt|-o|--output|-O|--Output)
+                echo "Error: $script_options[$arch_option] specified in -O options ($script_options).\nExiting." >&2
+                exit 1
+                ;;
+            *)
+                if [[ $script_options[$arch_option] == -* ]]; then
+                    simple_arguments=( ${(s::)${script_options[$arch_option]:1}} )
+                    for simple_arg in "${simple_arguments[@]}"; do
+                        case $simple_arg in
+                            h)
+                                show_arch_help
+                                ;;
+                            a|A|u|U|e)
+                                echo "detected $simple_arg in $script_options[$arch_option]"
+                                echo "Error: $simple_arg specified in argument cluster $script_options[$arch_option], found in -O options (${script_options[@]}).\nExiting." >&2
+                                exit 1
+                                ;;
+                            *)
+                                echo "Error: Invalid argument detected: $simple_arg in argument cluster $script_options[$arch_option], found in -O options (${script_options[@]}).\nExitng." >&2
+                                exit 1
+                                ;;
+                        esac
+                    done
+                else
+                    echo "🤷‍♂️ $script_options[$arch_option] 🤷‍♂️"
+                fi
+                ;;
+        esac
+
+    done
+fi
 
 # Use the dir the input file is located in as the output dir if no output dir was explicitly specified
 [[ $destination_specified == "false" ]] && destination_dir=${source_path:h}
