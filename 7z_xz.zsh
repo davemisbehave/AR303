@@ -455,6 +455,8 @@ if [[ $check_file_sizes == "true" ]]; then
     unarchived_size_byte=$(get_size "$tmp_dir")
     unarchived_size=$(to_human $unarchived_size_byte)
     tput cr; tput el
+else
+    script_options+=(-f)
 fi
 
 echo "Creating ${destination_path:t}"

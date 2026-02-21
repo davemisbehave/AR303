@@ -745,7 +745,12 @@ if [[ $operation == "archive" ]]; then
     tar_options=(--acls --xattrs)
     pv_options=()
     [[ $size_format == "decimal" ]] && pv_options+=(-k) # This needs to be specified before all other options
-    pv_options+=(-N "${source_path:t}" -s "$source_size_byte" "$pv_options_WITH_SIZE")
+    if [[ $check_file_sizes == "true" ]]; then
+        pv_options+=("$pv_options_WITH_SIZE" -s "$source_size_byte")
+    else
+        pv_options+=("$pv_options_without_size")
+    fi
+    pv_options+=(-N "${source_path:t}")
     [[ "$silent" == "true" ]] && pv_options+=(-q)
     
     restore_stdout_progress
