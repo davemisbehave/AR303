@@ -450,6 +450,13 @@ fi
 extracted_item="${${${source_path:t}:r}:r}"
 script_options+=(-O "$destination_path")
 
+if [[ $check_file_sizes == "true" ]]; then
+    printf "Determining unarchived size..."
+    unarchived_size_byte=$(get_size "$tmp_dir")
+    unarchived_size=$(to_human $unarchived_size_byte)
+    tput cr; tput el
+fi
+
 echo "Creating ${destination_path:t}"
 
 # Re-pack data using xz
@@ -463,7 +470,7 @@ if [[ $check_file_sizes == "true" ]]; then
     printf "Determining destination size..."
     destination_size_byte=$(get_size $destination_path)
     destination_size=$(to_human $destination_size_byte)
-    percentage=$(( (destination_size_byte * 100.0) / source_size_byte ))
+    percentage=$(( (destination_size_byte * 100.0) / unarchived_size_byte ))
     tput cr; tput el
 fi
 
@@ -480,8 +487,9 @@ echo "Finish:\t\t$(date)\n"
 end_epoch=$(date +%s)
 
 if [[ $check_file_sizes == "true" ]]; then
+    echo "Unarch. Size:\t$unarchived_size / $unarchived_size_byte bytes"
     printf "Destin. Size:\t$destination_size / $destination_size_byte bytes\n"
-    size_difference_byte=$(( destination_size_byte - source_size_byte ))
+    size_difference_byte=$(( destination_size_byte - unarchived_size_byte ))
     size_difference=$(to_human $size_difference_byte)
     printf "Difference:\t$size_difference / $size_difference_byte bytes (%.1f%%)\n" "$percentage"
 fi

@@ -858,8 +858,7 @@ fi
 
 silence_stdout_progress
 
-if [[ $check_file_sizes == "true" ]]; then
-    restore_stdout_progress
+if [[ $check_file_sizes == "true" && $silent == "false" ]]; then
     if [[ $operation == "archive" ]]; then
         tput cr; tput el
         printf "\rDetermining archive size..."
@@ -871,7 +870,6 @@ if [[ $check_file_sizes == "true" ]]; then
     destination_size=$(to_human $destination_size_byte)
     percentage=$(( (destination_size_byte * 100.0) / source_size_byte ))
     tput cr; tput el
-    silence_stdout_progress
 fi
 
 # Display finishing time
@@ -880,7 +878,7 @@ echo "Finish:\t\t$(date)\n"
 # Record end time (epoch seconds)
 end_epoch=$(date +%s)
 
-if [[ $check_file_sizes == "true" ]]; then
+if [[ $check_file_sizes == "true" && $silent == "false" ]]; then
     if [[ $operation == "archive" ]]; then
         printf "Archive Size:\t"
     else
