@@ -354,38 +354,40 @@ while (( $# > 0 )); do
 done
 
 if [[ $options_specified == "true" ]]; then
-    for arch_option in "${script_options[@]}"
+    for (( i=1; i<=$#script_options; i++ ))
     do
-        case $arch_option in
+        case $script_options[$i] in
             -h|--help)
                 show_arch_help
                 ;;
             -a|--archive|-A|--Archive|-u|--unarchive|-U|--Unarchive|-e|--encrypt|-E|--Encrypt|-o|--output|-O|--Output)
-                echo "Error: $arch_option specified in -O options ($script_options).\nExiting." >&2
+                echo "Error: $script_options[$i] specified in -O options ($script_options).\nExiting." >&2
                 exit 1
                 ;;
             -s|--silent)
                 prepare_arch_s
                 ;;
             -d|--dictionary)
-            
+                # Skip next argument (dictionary size in MiB)
+                (( i++ ))
                 ;;
             -t|--threads)
-            
+                # Skip next argument (number of threads)
+                (( i++ ))
                 ;;
             -b|--binary|-i|--integrity|-f|--fast|-p|--prior|-P|--Progress)
                 # Allow and ignore
                 ;;
             -*)
-                simple_arguments=( ${(s::)${arch_option:1}} )
+                simple_arguments=( ${(s::)${script_options[$i]:1}} )
                 for simple_arg in "${simple_arguments[@]}"; do
                     case $simple_arg in
                         h)
                             show_arch_help
                             ;;
                         a|A|u|U|e)
-                            echo "detected $simple_arg in $arch_option"
-                            echo "Error: '$simple_arg' specified in argument cluster $arch_option, found in -O options (${script_options[@]}).\nExiting." >&2
+                            echo "detected $simple_arg in $script_options[$i]"
+                            echo "Error: '$simple_arg' specified in argument cluster $script_options[$i], found in -O options (${script_options[@]}).\nExiting." >&2
                             exit 1
                             ;;
                         s)
@@ -395,17 +397,17 @@ if [[ $options_specified == "true" ]]; then
                             # Allow and ignore
                             ;;
                         *)
-                            echo "Error: Invalid argument detected: '$simple_arg' in argument cluster $arch_option, found in -O options (${script_options[@]}).\nExitng." >&2
+                            echo "Error: Invalid argument detected: '$simple_arg' in argument cluster $script_options[$i], found in -O options (${script_options[@]}).\nExitng." >&2
                             exit 1
                             ;;
                     esac
                 done
                 ;;
             *)
-                echo "🤷‍♂️ $arch_option 🤷‍♂️"
+                echo "Error: Invalid argument detected: '$script_options[$i]' in -O options (${script_options[@]}).\nExitng." >&2
+                exit 1
                 ;;
         esac
-
     done
 fi
 

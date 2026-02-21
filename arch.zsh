@@ -388,7 +388,7 @@ prepare_p() {
 
 prepare_P() {
     # Check if silent mode has been specified
-    if [[ $silent == "true"]]; then
+    if [[ $silent == "true" ]]; then
         echo "Error: You can not specify -P and -s at the same time. Exiting." >&2
         exit 1
     else
@@ -405,7 +405,7 @@ prepare_P() {
 
 prepare_s() {
     # Check if progress mode has been specified
-    if [[ $silent == "progress"]]; then
+    if [[ $silent == "progress" ]]; then
         echo "Error: You can not specify -P and -s at the same time. Exiting." >&2
         exit 1
     else
@@ -655,8 +655,6 @@ if [[ $operation == "none" ]]; then
 	echo "Exiting." >&2
 	exit 1
 fi
-
-if [[  ]]
 
 if [[ $operation == "unarchive" && ( $destination_specified == "file" || $destination_specified == "path_and_file" ) ]]; then
     echo "Output file name cannot be specified with -O/--Output for an unarchiving operation." >&2
