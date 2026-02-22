@@ -54,6 +54,44 @@ get_size() {
     return 0
 }
 
+compare_sizes() {
+    # First item (A)
+    local name_A="$1"
+    local bytes_A="$2"
+    local human_A="$(to_human $bytes_A)"
+    # Second item (B)
+    local name_B="$3"
+    local bytes_B="$4"
+    local human_B="$(to_human $bytes_B)"
+    # Difference
+    local difference_bytes=$(( bytes_B - bytes_A ))
+    
+    local difference_human="$(to_human $difference_bytes)"
+    # Absolute of difference
+    if (( "$difference_bytes" < 0 )); then
+        local abs_difference_bytes=$(( "$difference_bytes" * -1 ))
+    else
+        local abs_difference_bytes="$difference_bytes"
+    fi
+    local abs_difference_human="$(to_human $abs_difference_bytes)"
+    
+    # Print names and sizes
+    echo "$name_A vs. $name_B"
+    echo "$name_A:\t$human_A ($bytes_A bytes)"
+    echo "$name_B:\t$human_B ($bytes_B bytes)"
+ 
+    # Print comparison / difference
+    printf "$name_B is "
+    if (( $difference_bytes == 0 )); then
+        printf "the same size as $name_A\n"
+    elif (( $difference_bytes < 0 )); then
+        printf "$difference_human smaller (-"
+    else
+        printf "$difference_human larger (+"
+    fi
+    (( $difference_bytes != 0 )) && printf "%.1f%%)\n" $(( ( 100.0 * abs_difference_bytes ) / bytes_A ))
+}
+
 object_type() {
     if [[ ! -e "$1" && ! -L "$1" ]]; then
         echo "nonexistent"    # Object does not exist
@@ -192,6 +230,10 @@ prepare_b() {
     size_format="binary"
 }
 
+prepare_c() {
+    compare="true"
+}
+
 prepare_f() {
     check_file_sizes="false"
 }
@@ -215,6 +257,11 @@ if ! command -v 7zz >/dev/null 2>&1; then
     exit 1
 fi
 
+## Constants
+pv_options_WITH_SIZE="-ptbar"
+pv_options_without_size="-trab"
+
+## Variables
 source_specified="false"
 scratch_specified="false"
 destination_specified="false"
@@ -223,9 +270,8 @@ confirmation_needed="true"
 keep_7z_archive="false"
 size_format="decimal"
 check_file_sizes="true"
-pv_options_WITH_SIZE="-ptbar"
-pv_options_without_size="-trab"
 arch_silent="false"
+compare="false"
 script_options=()
 
 while (( $# > 0 )); do
@@ -238,6 +284,9 @@ while (( $# > 0 )); do
             ;;
         -b|--binary)
             prepare_b
+            ;;
+        -c|--compare)
+            prepare_c
             ;;
         -f|--fast)
             prepare_f
@@ -323,6 +372,9 @@ while (( $# > 0 )); do
                         b)
                             prepare_b
                             ;;
+                        c)
+                            prepare_c
+                            ;;
                         f)
                             prepare_f
                             ;;
@@ -352,6 +404,11 @@ while (( $# > 0 )); do
     # Move to the next argument
     shift
 done
+
+if [[ $check_file_sizes == "false" && $compare == "true" ]]; then
+    echo "Error: -c and -f options both selected. Exiting." >&2
+    exit 1
+fi
 
 if [[ $options_specified == "true" ]]; then
     for (( i=1; i<=$#script_options; i++ ))
@@ -464,7 +521,7 @@ zip_options=(l)
 printf "Checking source archive readability..."
 if ! 7zz "${zip_options[@]}" "$source_path" > /dev/null 2>&1; then
     tput cr; tput el
-    printf "\rArchive ${$source_path:t} could not be read. Exiting.\n" >&2
+    printf "\rArchive ${source_path:t} could not be read. Exiting.\n" >&2
     exit 1
 fi
 tput cr; tput el
@@ -516,7 +573,10 @@ fi
 
 extracted_item="${${${source_path:t}:r}:r}"
 script_options+=(-O "$destination_path")
-[[ $arch_silent == "false" ]] && script_options+=(-P)
+if [[ $arch_silent == "false" ]]; then
+    [[ $check_file_sizes == "false" ]] && script_options+=(-f)
+    script_options+=(-P)
+fi
 
 if [[ $check_file_sizes == "true" ]]; then
     printf "Determining unarchived size..."
@@ -538,7 +598,6 @@ if [[ $check_file_sizes == "true" ]]; then
     printf "Determining destination size..."
     destination_size_byte=$(get_size $destination_path)
     destination_size=$(to_human $destination_size_byte)
-    percentage=$(( (destination_size_byte * 100.0) / unarchived_size_byte ))
     tput cr; tput el
 fi
 
@@ -549,18 +608,10 @@ if [[ $keep_7z_archive == "false" ]]; then
 fi
 
 # Display finishing time
-echo "Finish:\t\t$(date)\n"
+echo "Finish:\t\t$(date)"
 
 # Record end time (epoch seconds)
 end_epoch=$(date +%s)
-
-if [[ $check_file_sizes == "true" ]]; then
-    echo "Unarch. Size:\t$unarchived_size / $unarchived_size_byte bytes"
-    printf "Destin. Size:\t$destination_size / $destination_size_byte bytes\n"
-    size_difference_byte=$(( destination_size_byte - unarchived_size_byte ))
-    size_difference=$(to_human $size_difference_byte)
-    printf "Difference:\t$size_difference / $size_difference_byte bytes (%.1f%%)\n" "$percentage"
-fi
 
 # Calculate elapsed time
 elapsed=$((end_epoch - start_epoch))
@@ -572,14 +623,27 @@ minutes=$((remainder / 60))
 seconds=$((remainder % 60))
 
 # Print formatted duration
+printf "\nElapsed time:\t"
 if (( days > 0 )); then
-    printf "Elapsed time:\t${days}d ${hours}h ${minutes}m ${seconds}s\n"
+    printf "${days}d ${hours}h ${minutes}m ${seconds}s\n"
 elif (( hours > 0 )); then
-    printf "Elapsed time:\t${hours}h ${minutes}m ${seconds}s\n"
+    printf "${hours}h ${minutes}m ${seconds}s\n"
 elif (( minutes > 0 )); then
-    printf "Elapsed time:\t${minutes}m ${seconds}s\n"
+    printf "${minutes}m ${seconds}s\n"
 else
-    printf "Elapsed time:\t${seconds}s\n"
+    printf "${seconds}s\n"
+fi
+
+# (if specified) Show file size comparison between unarchived data and xz-archive
+if [[ $check_file_sizes == "true" ]]; then
+    printf "\n"
+    compare_sizes "$extracted_item" $unarchived_size_byte "${destination_path:t}" $destination_size_byte
+fi
+
+# (if specified) Show file size comparison between 7z-archive and xz-archive
+if [[ $compare == "true" ]]; then
+    printf "\n"
+    compare_sizes "${destination_path:t}" $destination_size_byte "${source_path:t}" $source_size_byte
 fi
 
 echo "\nomgklolthxbye"

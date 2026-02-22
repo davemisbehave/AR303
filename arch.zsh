@@ -382,7 +382,7 @@ prepare_f() {
     if [[ $check_file_sizes == "true" ]]; then
         check_file_sizes="false"
     else
-        echo "-F and -f options both selected. Exiting." >&2
+        echo "Error: -F and -f options both selected. Exiting." >&2
         exit 1
     fi
 }
@@ -391,7 +391,7 @@ prepare_F() {
     if [[ $check_file_sizes == "true" ]]; then
         check_file_sizes="source"
     else
-        echo "-F and -f options both selected. Exiting." >&2
+        echo "Error: -F and -f options both selected. Exiting." >&2
         exit 1
     fi
 }
@@ -935,14 +935,15 @@ minutes=$((remainder / 60))
 seconds=$((remainder % 60))
 
 # Print formatted duration
+printf "\nElapsed time:\t"
 if (( days > 0 )); then
-	printf "Elapsed time:\t${days}d ${hours}h ${minutes}m ${seconds}s\n"
+    printf "${days}d ${hours}h ${minutes}m ${seconds}s\n"
 elif (( hours > 0 )); then
-	printf "Elapsed time:\t${hours}h ${minutes}m ${seconds}s\n"
+    printf "${hours}h ${minutes}m ${seconds}s\n"
 elif (( minutes > 0 )); then
-	printf "Elapsed time:\t${minutes}m ${seconds}s\n"
+    printf "${minutes}m ${seconds}s\n"
 else
-	printf "Elapsed time:\t${seconds}s\n"
+    printf "${seconds}s\n"
 fi
 
 echo "klolthxbye"
