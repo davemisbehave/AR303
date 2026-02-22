@@ -590,7 +590,7 @@ fi
 echo "Creating ${destination_path:t}"
 
 # Re-pack data using xz
-./arch.zsh -A "$tmp_dir/$extracted_item" "${script_options[@]}"
+../arch.zsh -A "$tmp_dir/$extracted_item" "${script_options[@]}"
 
 printf "Deleting temporary directory..."
 rm -rf "$tmp_dir"
