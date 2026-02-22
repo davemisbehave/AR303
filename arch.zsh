@@ -379,7 +379,21 @@ prepare_i() {
 }
 
 prepare_f() {
-    check_file_sizes="false"
+    if [[ $check_file_sizes == "true" ]]; then
+        check_file_sizes="false"
+    else
+        echo "-F and -f options both selected. Exiting." >&2
+        exit 1
+    fi
+}
+
+prepare_F() {
+    if [[ $check_file_sizes == "true" ]]; then
+        check_file_sizes="source"
+    else
+        echo "-F and -f options both selected. Exiting." >&2
+        exit 1
+    fi
 }
 
 prepare_p() {
@@ -474,6 +488,9 @@ while (( $# > 0 )); do
 		-f|--fast)
             prepare_f
 			;;
+        -F|--Fast)
+            prepare_F
+            ;;
         -p|--prior)
             prepare_p
             ;;
@@ -703,7 +720,7 @@ else
     printf "Destination:\t%s\n" "$destination_dir"
 fi
 
-if [[ $check_file_sizes == "true" ]]; then
+if [[ $check_file_sizes == "true" || $check_file_sizes == "source" ]]; then
     restore_stdout_progress
 	printf "Determining Source Size..."
 	source_size_byte=$(get_size $source_path)
@@ -757,7 +774,7 @@ if [[ $operation == "archive" ]]; then
     tar_options=(--acls --xattrs)
     pv_options=()
     [[ $size_format == "decimal" ]] && pv_options+=(-k) # This needs to be specified before all other options
-    if [[ $check_file_sizes == "true" ]]; then
+    if [[ $check_file_sizes == "true" || $check_file_sizes == "source" ]]; then
         pv_options+=("$pv_options_WITH_SIZE" -s "$source_size_byte")
     else
         pv_options+=("$pv_options_without_size")
@@ -839,7 +856,7 @@ else
     pv_options=()
     [[ $size_format == "decimal" ]] && pv_options+=(-k)
     pv_options+=(-N "${source_path:t}")
-    if [[ $check_file_sizes == "true" ]]; then
+    if [[ $check_file_sizes == "true" || $check_file_sizes == "source" ]]; then
         pv_options+=(-s "$source_size_byte" "$pv_options_WITH_SIZE")
     else
         pv_options+=("$pv_options_without_size")
