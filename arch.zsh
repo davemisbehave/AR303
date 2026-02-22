@@ -165,14 +165,16 @@ to_human() {
             split("B KiB MiB GiB TiB", unit);
             i=1;
             while($1>=1024 && i<5) { $1/=1024; i++ }
-            printf "%.1f %s", $1, unit[i]
+            if(i==1) {printf "%d %s", $1, unit[i]}
+            else {printf "%.1f %s", $1, unit[i]}
         }'
     else
         echo $abs_size_bytes | awk '{
             split("B KB MB GB TB", unit);
             i=1;
             while($1>=1000 && i<5) { $1/=1000; i++ }
-            printf "%.1f %s", $1, unit[i]
+            if(i==1) {printf "%d %s", $1, unit[i]}
+            else {printf "%.1f %s", $1, unit[i]}
         }'
     fi
 }

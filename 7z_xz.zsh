@@ -24,14 +24,16 @@ to_human() {
             split("B KiB MiB GiB TiB", unit);
             i=1;
             while($1>=1024 && i<5) { $1/=1024; i++ }
-            printf "%.1f %s", $1, unit[i]
+            if(i==1) { printf "%d %s", $1, unit[i] }
+            else { printf "%.1f %s", $1, unit[i] }
         }'
     else
         echo $abs_size_bytes | awk '{
             split("B KB MB GB TB", unit);
             i=1;
             while($1>=1000 && i<5) { $1/=1000; i++ }
-            printf "%.1f %s", $1, unit[i]
+            if(i==1) { printf "%d %s", $1, unit[i] }
+            else { printf "%.1f %s", $1, unit[i] }
         }'
     fi
 }
@@ -85,9 +87,9 @@ compare_sizes() {
     if (( $difference_bytes == 0 )); then
         printf "the same size as $name_A\n"
     elif (( $difference_bytes < 0 )); then
-        printf "$difference_human smaller (-"
+        printf "$abs_difference_human smaller (-"
     else
-        printf "$difference_human larger (+"
+        printf "$abs_difference_human larger (+"
     fi
     (( $difference_bytes != 0 )) && printf "%.1f%%)\n" $(( ( 100.0 * abs_difference_bytes ) / bytes_A ))
 }
