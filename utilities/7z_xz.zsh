@@ -56,6 +56,21 @@ get_size() {
     return 0
 }
 
+is_less_than_kB() {
+
+    if [[ $size_format == "binary" ]]; then
+        local kB_in_bytes=1024
+    else
+        local kB_in_bytes=1000
+    fi
+    
+    if (( $1 < $kB_in_bytes )); then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
 compare_sizes() {
     # First item (A)
     local name_A="$1"
@@ -77,10 +92,50 @@ compare_sizes() {
     fi
     local abs_difference_human="$(to_human $abs_difference_bytes)"
     
-    # Print names and sizes
+    local byte_unit_spaces="  "
+    
+    # Print names
     echo "$name_A vs. $name_B"
-    echo "$name_A:\t$human_A ($bytes_A bytes)"
-    echo "$name_B:\t$human_B ($bytes_B bytes)"
+    
+    # Find the lengths of the longest name, size (in bytes) and size (in human readable form)
+    local item_names=( "$name_A" "$name_B" )
+    local item_sizes=( "$bytes_A" "$bytes_B" )
+    local item_human=( "$human_A" "$human_B" )
+    local longest_item_name_length=0
+    local longest_size_length=0
+    local longest_human_length=0
+    for (( n=1; n<=$#item_names; n++ )); do
+        (( ${#item_names[$n]} > longest_item_name_length )) && longest_item_name_length=${#item_names[$n]}
+        (( ${#item_sizes[$n]} > longest_size_length )) && longest_size_length=${#item_sizes[$n]}
+        (( ${#item_human[$n]} > longest_human_length )) && longest_human_length=${#item_human[$n]}
+    done
+    
+    # Check if the byte length might be longer than 7 characters in binary mode. This is for alignment.
+    # 7 being the length of the shortest possible humand readable form larger or equal to 1KB/KiB, like "1.0 MiB"
+    if [[ $size_format == "binary" && $longest_human_length == 7 ]]; then
+        for (( n=1; n<=$#item_sizes; n++ )); do
+            if (( $item_sizes[$n] >= 1000 )); then
+                longest_human_length=8
+                byte_unit_spaces="$byte_unit_spaces "
+                break
+            fi
+        done
+    fi
+    
+    for (( n=1; n<=$#item_names; n++ )); do
+        if [[ $(is_less_than_kB "${item_sizes[n]}") == "true" ]]; then
+            if [[ $size_format == "binary" ]]; then
+                (( ${item_sizes[n]} < 1000 )) && byte_unit_spaces="$byte_unit_spaces "
+                byte_size_length=$((longest_human_length - 4))
+            else
+                byte_size_length=$((longest_human_length - 3))
+            fi
+            human_size=$(printf "%+${byte_size_length}s%sB" "${item_sizes[n]}" "$byte_unit_spaces")
+        else
+            human_size=$(printf "%+${longest_human_length}s" "${item_human[n]}")
+        fi
+        printf "%-${longest_item_name_length}s : %s (%+${longest_size_length}s bytes)\n" "${item_names[n]}" "$human_size" "${item_sizes[n]}"
+    done
  
     # Print comparison / difference
     printf "$name_B is "
