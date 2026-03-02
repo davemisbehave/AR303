@@ -386,10 +386,18 @@ fi
 
 echo "Creating ${destination_path:t}"
 
+cancel_archiving() {
+    trap - INT TERM HUP
+    rm -rf "$tmp_dir"
+    exit 1
+}
+
+trap cancel_archiving INT TERM HUP
+
 # Re-pack data using xz
-if ! ../arch.zsh -A "$tmp_dir/$extracted_item" "${script_options[@]}"; then
-    echo "Oh La la"
-fi
+../arch.zsh -A "$tmp_dir/$extracted_item" "${script_options[@]}"
+
+trap - INT TERM HUP
 
 printf "Deleting temporary directory..."
 rm -rf "$tmp_dir"
