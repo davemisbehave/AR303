@@ -14,24 +14,6 @@ show_arch_help() {
     exit 1
 }
 
-# Usage: check_pipeline "${pipestatus[@]}"
-check_pipeline() {
-    local statuses=("$@")
-    local exit_code=0
-    local commands=(7zz pv tar)
-    local pipe_command
-    
-    for pipe_command in {1..$#commands}
-    do
-        if [[ ${statuses[$pipe_command]} -ne 0 ]]; then
-            printf "\rError: Command ${commands[$pipe_command]} in pipeline failed with exit code ${statuses[$pipe_command]}: $(check_command ${commands[$pipe_command]} ${statuses[$pipe_command]})\n" >&2
-            exit_code=1
-        fi
-    done
-
-    return $exit_code
-}
-
 check_directory() {
     if [[ -e "$1" ]]; then
         if [[ "$(object_type "$1")" != "directory" ]]; then
@@ -88,6 +70,7 @@ size_format="decimal"
 check_file_sizes="true"
 arch_silent="false"
 compare="false"
+operation="convert"
 script_options=()
 
 while (( $# > 0 )); do
@@ -373,7 +356,7 @@ cancel_unarchiving() {
     exit 1
 }
 
-trap cancel_archiving INT TERM HUP
+trap cancel_unarchiving INT TERM HUP
 
 # Unpack 7z archive into temp dir in scratch directory
 7zz "${zip_options[@]}" "$source_path" | pv "${pv_options[@]}" | tar --acls --xattrs -C "$tmp_dir" -xf -
@@ -404,7 +387,9 @@ fi
 echo "Creating ${destination_path:t}"
 
 # Re-pack data using xz
-../arch.zsh -A "$tmp_dir/$extracted_item" "${script_options[@]}"
+if ! ../arch.zsh -A "$tmp_dir/$extracted_item" "${script_options[@]}"; then
+    echo "Oh La la"
+fi
 
 printf "Deleting temporary directory..."
 rm -rf "$tmp_dir"

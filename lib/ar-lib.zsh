@@ -257,6 +257,46 @@ check_command() {
     esac
 }
 
+# Usage: check_pipeline "${pipestatus[@]}"
+check_pipeline() {
+    local statuses=("$@")
+    local exit_code=0
+    local commands=()
+    local pipe_command
+
+    case $operation in
+        archive)
+            commands+="tar"
+            commands+="pv"
+            commands+="xz"
+            ;;
+        unarchive)
+            commands+="pv"
+            commands+="xz"
+            commands+="tar"
+            ;;
+        convert)
+            commands+="7zz"
+            commands+="pv"
+            commands+="tar"
+            ;;
+        *)
+            echo "Error: Invalid operation: $operation" >&2
+            return 1
+            ;;
+    esac
+    
+    for pipe_command in {1..$#commands}
+    do
+        if [[ ${statuses[$pipe_command]} -ne 0 ]]; then
+            printf "\rError: Command ${commands[$pipe_command]} in pipeline failed with exit code ${statuses[$pipe_command]}: $(check_command ${commands[$pipe_command]} ${statuses[$pipe_command]})\n" >&2
+            exit_code=1
+        fi
+    done
+
+    return $exit_code
+}
+
 prepare_b() {
     size_format="binary"
 }
