@@ -14,7 +14,7 @@ show_arch_help() {
     exit 1
 }
 
-check_directory() {
+check_directory_existence() {
     if [[ -e "$1" ]]; then
         if [[ "$(object_type "$1")" != "directory" ]]; then
             echo "Error: Specified $2 not a directory ($1).\nExiting." >&2
@@ -44,14 +44,35 @@ prepare_k() {
     keep_7z_archive="true"
 }
 
-prepare_arch_s() {
-    arch_silent="true"
+prepare_arch_verbosity() {
+    if [[ "$1" == "$arch_verbosity" ]]; then
+        return
+    elif [[ $arch_verbosity != "normal" ]]; then
+        printf "Error: -O/--Options options \"%s\" and \"%s\" specified simultaneously. Exiting.\n" "$(verboption "$arch_verbosity")" "$(verboption "$1")" >&2
+    fi
+    # Set verbosity according to argument
+    arch_verbosity="$1"
+    
+    case $arch_verbosity in
+        normal)
+            ;; # No further preparation necessary
+        verbose)
+            printf "-O/--Options option \"%s\" will be ignored.\n" "$(verboption "$arch_verbosity")" >&2
+            ;;
+        progress)
+            ;; # No further preparation necessary
+        silent)
+            ;; # No further preparation necessary
+        *)
+            exit_invalid_vebosity "$verbosity"
+            ;;
+    esac
 }
 
 # Ensure 7zz exists
 if ! command -v 7zz >/dev/null 2>&1; then
     tput bold; echo "7zz not installed." >&2; tput sgr0
-    echo "Install with: brew install 7zz" >&2
+    echo "Install with: brew install sevenzip" >&2
     exit 1
 fi
 
@@ -68,7 +89,7 @@ confirmation_needed="true"
 keep_7z_archive="false"
 size_format="decimal"
 check_file_sizes="true"
-arch_silent="false"
+arch_verbosity="normal"
 compare="false"
 operation="convert"
 script_options=()
@@ -106,7 +127,7 @@ while (( $# > 0 )); do
                     # Flag scratch as specified
                     scratch_specified="true"
                     
-                    if ! check_directory "$scratch_directory" "scratch directory"; then
+                    if ! check_directory_existence "$scratch_directory" "scratch directory"; then
                         echo "Error: scratch directory $scratch_directory does not exist.\nExiting." >&2
                         exit 1
                     fi
@@ -129,7 +150,7 @@ while (( $# > 0 )); do
                     # Flag destination as specified
                     destination_specified="true"
                     
-                    check_directory "$destination_dir" "destination directory"
+                    check_directory_existence "$destination_dir" "destination directory"
                 else
                     echo "No destination folder specified for -o/--output option. Exiting." >&2
                     exit 1
@@ -221,7 +242,7 @@ if [[ $options_specified == "true" ]]; then
                 exit 1
                 ;;
             -s|--silent)
-                prepare_arch_s
+                prepare_arch_verbosity "silent"
                 ;;
             -d|--dictionary)
                 # Skip next argument (dictionary size in MiB)
@@ -230,6 +251,9 @@ if [[ $options_specified == "true" ]]; then
             -t|--threads)
                 # Skip next argument (number of threads)
                 (( i++ ))
+                ;;
+            -v|--verbose)
+                prepare_arch_verbosity "verbose"
                 ;;
             -b|--binary|-i|--integrity|-f|--fast|-p|--prior|-P|--Progress)
                 # Allow and ignore
@@ -246,7 +270,10 @@ if [[ $options_specified == "true" ]]; then
                             exit 1
                             ;;
                         s)
-                            prepare_arch_s
+                            prepare_arch_verbosity "silent"
+                            ;;
+                        v)
+                            prepare_arch_verbosity "verbose"
                             ;;
                         b|i|f|p|P)
                             # Allow and ignore
@@ -372,7 +399,7 @@ fi
 
 extracted_item="${${${source_path:t}:r}:r}"
 script_options+=(-O "$destination_path")
-if [[ $arch_silent == "false" ]]; then
+if [[ $arch_verbosity != "silent" ]]; then
     [[ $check_file_sizes == "false" ]] && script_options+=(-f)
     script_options+=(-P)
 fi

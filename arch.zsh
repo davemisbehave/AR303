@@ -161,12 +161,12 @@ check_archive_integrity() {
 
 restore_stdout_progress() {
     # Temporarily restore output to stdout if only progress should be shown
-    [[ "$silent" == "progress" ]] && exec >&3
+    exec >&3
 }
 
 silence_stdout_progress() {
     # Silence output to stdout if only progress should be shown
-    [[ "$silent" == "progress" ]] && exec > /dev/null
+    exec > /dev/null
 }
 
 not_yet_implemented() {
@@ -226,34 +226,39 @@ prepare_p() {
     delete_before_compressing="true"
 }
 
-prepare_P() {
-    # Check if silent mode has been specified
-    if [[ $silent == "true" ]]; then
-        echo "Error: You can not specify -P and -s at the same time. Exiting." >&2
-        exit 1
+prepare_verbosity() {
+    # Check if any special verbosity has been previously specified
+    if [[ $verbosity == "normal" ]]; then
+        # Set verbosity according to argument
+        verbosity="$1"
+    elif [[ $verbosity == "$1" ]]; then
+        # Do nothing if the selected verbosity has already been set
+        return
     else
-        # Mark silent as "progress"
-        silent="progress"
+        printf "Error: %s and %s are incompatible. Exiting\n" "$(verboption "$verbosity")" "$(verboption "$1")" >&2
+        exit 1
     fi
-
-    # Save original stdout (FD 1) into FD 3
-    exec 3>&1
     
-    # Redirect stdout to /dev/null
-    exec > /dev/null
-}
-
-prepare_s() {
-    # Check if progress mode has been specified
-    if [[ $silent == "progress" ]]; then
-        echo "Error: You can not specify -P and -s at the same time. Exiting." >&2
-        exit 1
-    else
-        # Mark silent as true
-        silent="true"
-    fi
-    exec > /dev/null
-    prepare_f
+    case $verbosity in
+        verbose)
+            # No preparation necessary
+            ;;
+        progress)
+            # Save original stdout (FD 1) into FD 3
+            exec 3>&1
+            # Silence stdout
+            silence_stdout_progress
+            ;;
+        silent)
+            # Silence stdout
+            silence_stdout_progress
+            # Prevent file sizes from being calculated (they won't be shown in silent mode anyways)
+            prepare_f
+            ;;
+        *)
+            exit_invalid_vebosity "$verbosity"
+            ;;
+    esac
 }
 
 ### BEGINNING OF SCRIPT ####
@@ -274,6 +279,7 @@ fi
 
 operation="none"
 source_specified="false"
+source_paths=()
 destination_specified="false"
 confirmation_needed="true"
 dictionary_size=256
@@ -283,13 +289,13 @@ encryption_specified="false"
 password_specified="false"
 threads_specified="false"
 perform_integrity_check="false"
-silent="false"
+verbosity="normal"
 size_format="decimal"
 pv_options_WITH_SIZE="-ptebar"
 pv_options_without_size="-trab"
 delete_before_compressing="false"
 
-typeset -a pipe_st
+typeset -a pipe_status
 
 while (( $# > 0 )); do
     arg="$1"
@@ -321,10 +327,13 @@ while (( $# > 0 )); do
             prepare_p
             ;;
         -P|--Progress)
-            prepare_P
+            prepare_verbosity "progress"
             ;;
         -s|--silent)
-            prepare_s
+            prepare_verbosity "silent"
+            ;;
+        -v|--verbose)
+            prepare_verbosity "verbose"
             ;;
 		-e|--encrypt)
             prepare_e
@@ -460,17 +469,23 @@ while (( $# > 0 )); do
                     f)
                         prepare_f
                         ;;
+                    F)
+                        prepare_F
+                        ;;
                     p)
                         prepare_p
                         ;;
                     P)
-                        prepare_P
+                        prepare_verbosity "progress"
                         ;;
                     e)
                         prepare_e
                         ;;
                     s)
-                        prepare_s
+                        prepare_verbosity "silent"
+                        ;;
+                    v)
+                        prepare_verbosity "verbose"
                         ;;
                     *)
                         echo "Error: Invalid argument detected: $simple_arg in $arg.\nExitng." >&2
@@ -480,11 +495,7 @@ while (( $# > 0 )); do
             done
             ;;
 		*)
-            if [[ $source_specified == "true" ]]; then
-                echo "Error: Multiple sources specified. Exiting." >&2
-                exit 1
-            fi
-            source_path="$1"
+            source_paths+=("$1")
             source_specified="true"
 			;;
 	esac
@@ -506,10 +517,12 @@ if [[ $operation == "unarchive" && ( $destination_specified == "file" || $destin
     exit 1
 fi
 
-if [[ ! -e "$source_path" ]]; then
-    echo "$source_path does not exist. Exiting." >&2
-    exit 1
-fi
+for (( item=1; item<=$#source_paths; item++ )); do
+    if [[ ! -e "$source_paths[$item]" ]]; then
+        echo "$source_paths[$item] does not exist. Exiting." >&2
+        exit 1
+    fi
+done
 
 if [[ $operation != "archive" && $delete_before_compressing == "true" ]]; then
     echo "-p/--prior option only applies to archiving. Exiting." >&2
@@ -520,42 +533,73 @@ fi
 
 # Sanitize destination_dir (remove trailing '/')
 destination_dir=${destination_dir:a}
+
+# Set source description. Use item name if one item, or "N source items" for multiple
+if [[ $#source_paths == 1 ]]; then
+    source_description="${source_paths[1]:t}"
+else
+    source_description="${#source_paths} source items"
+fi
+
 tput bold
 if [[ $operation == "archive" ]]; then
-    [[ $destination_specified == "folder" || $destination_specified == "false" ]] && destination_file="${source_path:t}.tar.xz"
+    if [[ $destination_specified == "folder" || $destination_specified == "false" ]]; then
+        if [[ $#source_paths == 1 ]]; then
+            destination_file="${source_paths:t}.tar.xz"
+        else
+            destination_file="archive.tar.xz"
+        fi
+    fi
 	destination_path="${destination_dir:a}/$destination_file"
-	printf "Archive ${source_path:t} to ${destination_path:t}\n"
-else
-    destination_path="${destination_dir:a}/${${${source_path:t}%.tar.xz}%.xz}"
-	printf "Unarchive ${source_path:t} to ${destination_dir:t}\n"
+    printf "Archive $source_description to ${destination_path:t}\n"
+else    # operation: unarchive
+    printf "Unarchive $source_description to ${destination_dir:t}\n"
 fi
 tput sgr0
+
+if [[ $#source_paths > 1 && $verbosity == "verbose" ]]; then
+    for (( item=1; item<=$#source_paths; item++ )); do
+        printf "\t${source_paths[$item]}\n"
+    done
+fi
+
 [[ $dictionary_size_specified == "true" ]] && printf "Dictionary:\t%d MiB\n" $dictionary_size
 if [[ $threads_specified == "true" ]]; then
-    if [[ "$threads" == "on" ]]; then
+    if [[ $threads == "on" ]]; then
         printf "Threads:\tautomatic\n"
     else
         printf "Threads:\t%d\n" $threads
     fi
 fi
-printf "Source:\t\t%s\n" "$source_path"
+
+printf "Source:\t\t"
+if [[ $#source_paths == 1 ]]; then
+    printf "${source_paths[1]}\n"
+else
+    printf "$source_description\n"
+fi
 
 if [[ $operation == "archive" ]]; then
     printf "Destination:\t%s\n" "$destination_path"
 else
-    printf "Destination:\t%s\n" "$destination_dir"
+    printf "Destination:\t%s/\n" "$destination_dir"
 fi
 
 if [[ $check_file_sizes == "true" || $check_file_sizes == "source" ]]; then
-    restore_stdout_progress
+    [[ $verbosity == "progress" ]] && restore_stdout_progress
 	printf "Determining Source Size..."
-	source_size_byte=$(get_size $source_path)
-	source_size=$(to_human $source_size_byte)
+    typeset -i total_source_size_byte=0
+    source_size_byte=()
+    for (( item=1; item<=$#source_paths; item++ )); do
+        source_size_byte[$item]=$(get_size "$source_paths[$item]")
+        (( total_source_size_byte += $source_size_byte[$item] ))
+    done
+	source_size=$(to_human $total_source_size_byte)
 	tput cr; tput el
-    silence_stdout_progress
-	printf "\rSource Size:\t$source_size / $source_size_byte bytes\n"
+    [[ $verbosity == "progress" ]] && silence_stdout_progress
+	printf "\rSource Size:\t$source_size / $total_source_size_byte bytes\n"
 fi
-if [[ -e $destination_path && $operation == "archive" ]]; then
+if [[ $operation == "archive" && -e $destination_path ]]; then
 	destination_type="$(object_type $destination_path)"
 	if [[ $destination_type == "file" ]]; then
 		echo "Warning: ${destination_path:t} exists and will be overwritten."
@@ -567,7 +611,7 @@ fi
 if [[ -e $destination_dir && $operation == "unarchive" ]]; then
 	destination_type="$(object_type $destination_dir)"
 	if [[ $destination_type != "directory" ]]; then
-		echo "Warning: ${destination_dir:t} exists and is not a folder ($destination_type). Exiting." >&2
+		echo "Warning: ${destination_dir:t} exists and is not a folder (is $destination_type). Exiting." >&2
 		exit 1
 	fi
 fi
@@ -587,7 +631,11 @@ fi
 # Display starting time
 echo "\nStart:\t\t$(date)"
 
-mkdir -p "${destination_dir:a}"
+if [[ $operation == "archive" ]]; then
+    mkdir -p "${destination_dir:a}"
+else
+    mkdir -p "$destination_dir"
+fi
 # Record start time (epoch seconds)
 start_epoch=$(date +%s)
 
@@ -601,14 +649,14 @@ if [[ $operation == "archive" ]]; then
     pv_options=()
     [[ $size_format == "decimal" ]] && pv_options+=(-k) # This needs to be specified before all other options
     if [[ $check_file_sizes == "true" || $check_file_sizes == "source" ]]; then
-        pv_options+=("$pv_options_WITH_SIZE" -s "$source_size_byte")
+        pv_options+=("$pv_options_WITH_SIZE" -s "$total_source_size_byte")
     else
         pv_options+=("$pv_options_without_size")
     fi
-    pv_options+=(-N "${source_path:t}")
-    [[ "$silent" == "true" ]] && pv_options+=(-q)
+    pv_options+=(-N "$source_description")
+    [[ "$verbosity" == "silent" ]] && pv_options+=(-q)
     
-    restore_stdout_progress
+    [[ "$verbosity" == "progress" ]] && restore_stdout_progress
     
     if [[ $delete_before_compressing == "true" && -e $destination_path ]]; then
         printf "Deleting pre-existing ${destination_path:t}..."
@@ -617,6 +665,13 @@ if [[ $operation == "archive" ]]; then
     fi
     
     tmp="${destination_path}.part.$$"
+    
+    tar_names=()
+    for source_path in "${source_paths[@]}"; do
+        local item_name="${source_path:t}"
+        [[ $item_name == -* ]] && item_name="./$item_name"   # protects names like "-weird"
+        tar_names+=(-C "${source_path:h}" "$item_name")
+    done
     
     cancel_archiving() {
         trap - INT TERM HUP
@@ -633,15 +688,15 @@ if [[ $operation == "archive" ]]; then
 
     trap cancel_archiving INT TERM HUP
 
-    tar "${tar_options[@]}" -C "${source_path:h}" -cf - "${source_path:t}" 2>/dev/null \
+    tar "${tar_options[@]}" -cf - "${tar_names[@]}" 2>/dev/null \
     | pv "${pv_options[@]}" \
     | xz "${xz_options[@]}" >| "$tmp"
     
-    pipe_st=( "${pipestatus[@]}" )
+    pipe_status=( "${pipestatus[@]}" )
 
     trap - INT TERM HUP
     
-    if ! check_pipeline "${pipe_st[@]}"; then
+    if ! check_pipeline "${pipe_status[@]}"; then
         echo "Exiting."
         [[ -e "$tmp" ]] && rm -f -- "$tmp"
         exit 1
@@ -665,13 +720,16 @@ if [[ $operation == "archive" ]]; then
         tput cuu1; tput cr; tput el
     fi
 else
-    restore_stdout_progress
+    [[ $verbosity == "progress" ]] && restore_stdout_progress
 	printf "Checking archive readability..."
-    if ! check_archive_integrity "$source_path"; then
-		tput cr; tput el
-		printf "\rArchive ${$source_path:t} could not be read. Exiting.\n" >&2
-		exit 1
-	fi
+    for (( item=1; item<=$#source_paths; item++ )); do
+        if ! check_archive_integrity "$source_paths[$item]"; then
+            tput cr; tput el
+            printf "\rArchive ${$source_paths[$item]:t} could not be read. Exiting.\n" >&2
+            exit 1
+        fi
+    done
+
 	tput cr; tput el
  
     # Set xz options for unarchiving
@@ -681,17 +739,18 @@ else
     # Set pv options for unarchiving
     pv_options=()
     [[ $size_format == "decimal" ]] && pv_options+=(-k)
-    pv_options+=(-N "${source_path:t}")
     if [[ $check_file_sizes == "true" || $check_file_sizes == "source" ]]; then
-        pv_options+=(-s "$source_size_byte" "$pv_options_WITH_SIZE")
+        pv_options+=("$pv_options_WITH_SIZE")
     else
         pv_options+=("$pv_options_without_size")
     fi
-    [[ "$silent" == "true" ]] && pv_options+=(-q)
+    [[ $verbosity == "silent" ]] && pv_options+=(-q)
     
     cancel_unarchiving() {
         trap - INT TERM HUP
         
+        # Remove temporary list of output files
+        [[ -e "$list_tmp" ]] && rm -f -- "$list_tmp"
         # Kill the pipeline processes (children of this shell), but NOT this shell.
         pkill -TERM -P $$ 2>/dev/null
         # give them a moment; then be firm if needed
@@ -699,47 +758,80 @@ else
         pkill -KILL -P $$ 2>/dev/null
         exit 1
     }
+    
+    # Start an empty array to store the extracted file names
+    extracted_list=()
 
     trap cancel_unarchiving INT TERM HUP
     
-    # Unarchive
-    pv "${pv_options[@]}" < "$source_path" \
-    | xz "${xz_options[@]}" \
-    | tar --acls --xattrs -C "$destination_dir" -xf -
-    
-    pipe_st=( "${pipestatus[@]}" )
+    for (( item=1; item<=$#source_paths; item++ )); do
+        # Create temporary file for tar to write output files names to
+        if ! list_tmp=$(mktemp); then
+            echo "Error: could not create temporary file list_tmp. Exiting." &>2
+            exit 1
+        fi
+        pv_size=()
+        [[ ( $verbosity == "normal" || $verbosity == "verbose" ) && $check_file_sizes != "false" ]] \
+        && pv_size+=(-s "$source_size_byte[$item]")
+        # Unarchive
+        pv "${pv_options[@]}" "$pv_size[@]" -N "${source_paths[$item]:t}" < "$source_paths[$item]" \
+        | xz "${xz_options[@]}" \
+        | tar --acls --xattrs -C "$destination_dir" -xvf - 2>"$list_tmp"
+        
+        if ! check_pipeline "${pipestatus[@]}"; then
+            # Clean up temp dirs?
+            echo "Exiting." >&2
+            exit 1
+        fi
+        extracted_list+=("${(@f)$(<"$list_tmp")}")
+        rm -f -- "$list_tmp"
+    done
     trap - INT TERM HUP
-    
-	if ! check_pipeline "${pipe_st[@]}"; then
-		echo "Exiting." >&2
-		exit 1
-	fi
+    extracted_list=("${(@)extracted_list/#x /}")    # remove "x "
+    extracted_list=("${(@)extracted_list/#.\//}")   # remove leading "./"
+    extracted_list=("${(@)extracted_list/#/$destination_dir/}")  # prepend destination
 fi
 
-silence_stdout_progress
+[[ $verbosity == "progress" ]] && silence_stdout_progress
 
-if [[ $check_file_sizes == "true" && $silent == "false" ]]; then
+if [[ $check_file_sizes == "true" && $verbosity != "progress" ]]; then
     if [[ $operation == "archive" ]]; then
         tput cr; tput el
         printf "\rDetermining archive size..."
+        destination_size_byte=$(get_size "$destination_path")
     else
         tput cr; tput el
         printf "\rDetermining destination size..."
+        destination_size_byte=0
+        for (( item=1; item<=$#extracted_list; item++ )); do
+            [[ $(object_type "$extracted_list[$item]") != "directory" ]] && (( destination_size_byte += $(get_size "$extracted_list[$item]") ))
+        done
     fi
-    destination_size_byte=$(get_size $destination_path)
+    
     destination_size=$(to_human $destination_size_byte)
-    percentage=$(( (destination_size_byte * 100.0) / source_size_byte ))
     tput cr; tput el
 fi
 
 # Display finishing time
-echo "Finish:\t\t$(date)\n"
+echo "Finish:\t\t$(date)"
 
 # Record end time (epoch seconds)
 end_epoch=$(date +%s)
 
 # Show size difference between source and archive
-[[ $check_file_sizes == "true" && $silent == "false" ]] && compare_sizes "${source_path:t}" $source_size_byte "${destination_path:t}" $destination_size_byte
+if [[ $check_file_sizes == "true" && $verbosity != "progress" ]]; then
+    if [[ $operation == "archive" ]]; then
+        destination_description="${destination_path:t}"
+    else
+        if [[ $#extracted_list == 1 ]]; then
+            destination_description=${extracted_list[1]:t}
+        else
+            destination_description="${#extracted_list} extracted items"
+        fi
+    fi
+    printf "\n"
+    compare_sizes "$source_description" $total_source_size_byte "$destination_description" $destination_size_byte
+fi
 
 # Calculate elapsed time
 elapsed=$((end_epoch - start_epoch))
