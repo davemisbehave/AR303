@@ -69,26 +69,12 @@ prepare_arch_verbosity() {
     esac
 }
 
-# Ensure 7zz exists
-if ! command -v 7zz >/dev/null 2>&1; then
-    tput bold; echo "7zz not installed." >&2; tput sgr0
-    echo "Install with: brew install sevenzip" >&2
-    exit 1
-fi
-
-## Constants
-pv_options_WITH_SIZE="-ptbar"
-pv_options_without_size="-trab"
-
 ## Variables
 source_specified="false"
 scratch_specified="false"
 destination_specified="false"
 options_specified="false"
-confirmation_needed="true"
 keep_7z_archive="false"
-size_format="decimal"
-check_file_sizes="true"
 arch_verbosity="normal"
 compare="false"
 operation="convert"
@@ -229,6 +215,8 @@ if [[ $check_file_sizes == "false" && $compare == "true" ]]; then
     echo "Error: -c and -f options both selected. Exiting." >&2
     exit 1
 fi
+
+check_dependency "7zz" "pv" "xz"
 
 if [[ $options_specified == "true" ]]; then
     for (( i=1; i<=$#script_options; i++ ))

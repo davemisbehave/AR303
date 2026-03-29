@@ -263,36 +263,16 @@ prepare_verbosity() {
 
 ### BEGINNING OF SCRIPT ####
 
-# Ensure xz exists
-if ! command -v xz >/dev/null 2>&1; then
-    tput bold; echo "xz not installed." >&2; tput sgr0
-    echo "Install with: brew install xz" >&2
-    exit 1
-fi
- 
-# Ensure pv exists
-if ! command -v pv >/dev/null 2>&1; then
-    tput bold; echo "pv not installed." >&2; tput sgr0
-    echo "Install with: brew install pv" >&2
-    exit 1
-fi
-
 operation="none"
 source_specified="false"
 source_paths=()
 destination_specified="false"
-confirmation_needed="true"
 dictionary_size=256
 dictionary_size_specified="false"
-check_file_sizes="true"
 encryption_specified="false"
 password_specified="false"
 threads_specified="false"
 perform_integrity_check="false"
-verbosity="normal"
-size_format="decimal"
-pv_options_WITH_SIZE="-ptebar"
-pv_options_without_size="-trab"
 delete_before_compressing="false"
 
 typeset -a pipe_status
@@ -517,17 +497,19 @@ if [[ $operation == "unarchive" && ( $destination_specified == "file" || $destin
     exit 1
 fi
 
+if [[ $operation != "archive" && $delete_before_compressing == "true" ]]; then
+    echo "-p/--prior option only applies to archiving. Exiting." >&2
+    exit 1
+fi
+
+check_dependency "xz" "pv"
+
 for (( item=1; item<=$#source_paths; item++ )); do
     if [[ ! -e "$source_paths[$item]" ]]; then
         echo "$source_paths[$item] does not exist. Exiting." >&2
         exit 1
     fi
 done
-
-if [[ $operation != "archive" && $delete_before_compressing == "true" ]]; then
-    echo "-p/--prior option only applies to archiving. Exiting." >&2
-    exit 1
-fi
 
 [[ $destination_specified == "false" || $destination_specified == "file" ]] && destination_dir="$PWD"
 
@@ -720,15 +702,17 @@ if [[ $operation == "archive" ]]; then
         tput cuu1; tput cr; tput el
     fi
 else
-    [[ $verbosity == "progress" ]] && restore_stdout_progress
-	printf "Checking archive readability..."
-    for (( item=1; item<=$#source_paths; item++ )); do
-        if ! check_archive_integrity "$source_paths[$item]"; then
-            tput cr; tput el
-            printf "\rArchive ${$source_paths[$item]:t} could not be read. Exiting.\n" >&2
-            exit 1
-        fi
-    done
+    if [[ $perform_integrity_check == "true" ]]; then
+        [[ $verbosity == "progress" ]] && restore_stdout_progress
+        printf "Checking archive readability..."
+        for (( item=1; item<=$#source_paths; item++ )); do
+            if ! check_archive_integrity "$source_paths[$item]"; then
+                tput cr; tput el
+                printf "\rArchive ${$source_paths[$item]:t} could not be read. Exiting.\n" >&2
+                exit 1
+            fi
+        done
+    fi
 
 	tput cr; tput el
  

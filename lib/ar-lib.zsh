@@ -1,5 +1,15 @@
 #!/usr/bin/env zsh
 
+## Variables
+verbosity="normal"
+confirmation_needed="true"
+size_format="decimal"
+check_file_sizes="true"
+
+## Constants
+pv_options_WITH_SIZE="-F %N %b %t %r %a |%{bar-shaded}| %{progress-amount-only} %e"
+pv_options_without_size="-trab"
+
 get_size() {
     local target="$1"
     
@@ -135,6 +145,87 @@ object_type() {
     else
         echo "unknown"
     fi
+}
+
+command_exists() {
+    if command -v "$1" >/dev/null 2>&1; then
+        return 0    # command does exist
+    else
+        return 1    # command does not exist
+    fi
+}
+
+run_brew() {
+    if [[ $verbosity == "verbose" ]]; then
+        brew "$@"
+    else
+        brew "$@" > /dev/null 2>&1
+    fi
+}
+
+check_dependency() {
+    local commands=$#
+    local not_installed=()
+    local brew_package=()
+    local brew_available()
+    local no_brew=()
+    local confirm
+    local n
+    
+    for (( n=1; n<=$commands; n++ )); do
+        if ! command_exists "$argv[$n]"; then
+            case $argv[$n] in
+                7zz)
+                    brew_package+=(sevenzip)
+                    not_installed+=(7zz)
+                    brew_available+=(7zz)
+                    ;;
+                pv)
+                    brew_package+=(pv)
+                    not_installed+=(pv)
+                    brew_available+=(pv)
+                    ;;
+                xz)
+                    brew_package+=(xz)
+                    not_installed+=(xz)
+                    brew_available+=(xz)
+                    ;;
+                *)
+                    echo "Error: check_dependency encountered an unknown command ($argv[$n]).\nExiting." >&2
+                    exit 1
+                    ;;
+            esac
+        fi
+    done
+    
+    [[ $#not_installed == 0 ]] && return 0
+
+    printf "The following executables are not installed:\n%s\n" "${not_installed[*]}"
+    local ret_val=0
+    if [[ $#brew_package > 0 ]]; then
+        if command_exists brew; then
+            if [[ $confirmation_needed == "true" ]]; then
+                printf "Install executables (%s) with Homebrew?\n" "${brew_available[*]}"
+                read "?Confirm with 'y': " confirm
+                [[ $confirm == "y" ]] || return 1
+            fi
+            printf "Updating Homebrew..."
+            [[ $verbosity == "verbose" ]] && printf "\n"
+            run_brew update || { echo "Failed to update Homebrew." >&2; return 1 }
+            for (( n=1; n<=$#brew_package; n++ )); do
+                tput cr; tput el
+                printf "Installing executable %s (package %s)..." "${brew_available[$n]}" "${brew_package[$n]}"
+                [[ $verbosity == "verbose" ]] && printf "\n"
+                run_brew install ${brew_package[$n]} || { printf "Failed to install package %s for executable %s.\n" "${brew_package[$n]}" "${brew_available[$n]}" >&2; return 1 }
+            done
+            tput cr; tput el
+        else
+            printf "The following executables need Homebrew in order to be installed: %s\n" "${brew_available[*]}"
+            ret_val=1
+        fi
+    fi
+    [[ ${#no_brew} > 0 ]] && { printf "The following executables must be installed manually: %s\n" "${no_brew[*]}" >&2; ret_val=1 }
+    return $ret_val
 }
 
 check_command() {
