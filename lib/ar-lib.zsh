@@ -167,7 +167,7 @@ check_dependency() {
     local commands=$#
     local not_installed=()
     local brew_package=()
-    local brew_available()
+    local brew_available=()
     local no_brew=()
     local confirm
     local n
@@ -200,7 +200,7 @@ check_dependency() {
     
     [[ $#not_installed == 0 ]] && return 0
 
-    printf "The following executables are not installed:\n%s\n" "${not_installed[*]}"
+    printf "The following executables are not installed: %s\n" "${not_installed[*]}"
     local ret_val=0
     if [[ $#brew_package > 0 ]]; then
         if command_exists brew; then
@@ -224,7 +224,7 @@ check_dependency() {
             ret_val=1
         fi
     fi
-    [[ ${#no_brew} > 0 ]] && { printf "The following executables must be installed manually: %s\n" "${no_brew[*]}" >&2; ret_val=1 }
+    (( ${#no_brew} > 0 )) && { printf "The following executables must be installed manually: %s\n" "${no_brew[*]}" >&2; ret_val=1 }
     return $ret_val
 }
 
@@ -369,23 +369,12 @@ exit_invalid_vebosity() {
     exit 1
 }
 
-verboption() {
-    case $1 in
-        verbose)
-            printf "-v/--verbose"
-            ;;
-        progress)
-            printf "-P/--Progress"
-            ;;
-        silent)
-            printf "-s/--silent"
-            ;;
-        *)
-           exit_invalid_vebosity "$1"
-           ;;
-    esac
-}
-
 prepare_b() {
     size_format="binary"
+}
+
+show_delete() {
+    printf "Deleting %s..." "$1"
+    rm -rf -- "$2"
+    tput cr; tput el
 }

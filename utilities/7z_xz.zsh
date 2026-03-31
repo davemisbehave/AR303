@@ -45,28 +45,12 @@ prepare_k() {
 }
 
 prepare_arch_verbosity() {
-    if [[ "$1" == "$arch_verbosity" ]]; then
-        return
-    elif [[ $arch_verbosity != "normal" ]]; then
-        printf "Error: -O/--Options options \"%s\" and \"%s\" specified simultaneously. Exiting.\n" "$(verboption "$arch_verbosity")" "$(verboption "$1")" >&2
+    if [[ "$1" != "normal" && "$1" != "verbose" && "$1" != "progress" && "$1" != "silent" ]]; then
+        exit_invalid_vebosity "$1"
+    else
+        # Set verbosity according to argument
+        arch_verbosity="$1"
     fi
-    # Set verbosity according to argument
-    arch_verbosity="$1"
-    
-    case $arch_verbosity in
-        normal)
-            ;; # No further preparation necessary
-        verbose)
-            printf "-O/--Options option \"%s\" will be ignored.\n" "$(verboption "$arch_verbosity")" >&2
-            ;;
-        progress)
-            ;; # No further preparation necessary
-        silent)
-            ;; # No further preparation necessary
-        *)
-            exit_invalid_vebosity "$verbosity"
-            ;;
-    esac
 }
 
 ## Variables
@@ -76,6 +60,7 @@ destination_specified="false"
 options_specified="false"
 keep_7z_archive="false"
 arch_verbosity="normal"
+arch_verbosity_specified="false"
 compare="false"
 operation="convert"
 script_options=()
@@ -216,11 +201,10 @@ if [[ $check_file_sizes == "false" && $compare == "true" ]]; then
     exit 1
 fi
 
-check_dependency "7zz" "pv" "xz"
+check_dependency "7zz" "pv" "xz" || exit 1
 
 if [[ $options_specified == "true" ]]; then
-    for (( i=1; i<=$#script_options; i++ ))
-    do
+    for (( i=1; i<=$#script_options; i++ )); do
         case $script_options[$i] in
             -h|--help)
                 show_arch_help
@@ -228,9 +212,6 @@ if [[ $options_specified == "true" ]]; then
             -a|--archive|-A|--Archive|-u|--unarchive|-U|--Unarchive|-e|--encrypt|-E|--Encrypt|-o|--output|-O|--Output)
                 echo "Error: $script_options[$i] specified in -O options ($script_options).\nExiting." >&2
                 exit 1
-                ;;
-            -s|--silent)
-                prepare_arch_verbosity "silent"
                 ;;
             -d|--dictionary)
                 # Skip next argument (dictionary size in MiB)
@@ -240,11 +221,15 @@ if [[ $options_specified == "true" ]]; then
                 # Skip next argument (number of threads)
                 (( i++ ))
                 ;;
-            -v|--verbose)
-                prepare_arch_verbosity "verbose"
-                ;;
-            -b|--binary|-i|--integrity|-f|--fast|-p|--prior|-P|--Progress)
-                # Allow and ignore
+            -b|--binary|-i|--integrity|-f|--fast|-p|--prior)
+                ;;  # Allow and ignore
+            -v|--verbosity)
+                if [[ $arch_verbosity_specified == "true" ]]; then
+                    printf "Error: -v/--verbosity specified multiple times in -O/--Options options. Exiting.\n" >&2
+                fi
+                prepare_arch_verbosity "${script_options[$(( i + 1 ))]}"
+                arch_verbosity_specified="true"
+                (( i++ ))
                 ;;
             -*)
                 simple_arguments=( ${(s::)${script_options[$i]:1}} )
@@ -257,15 +242,8 @@ if [[ $options_specified == "true" ]]; then
                             echo "Error: '$simple_arg' specified in argument cluster $script_options[$i], found in -O options (${script_options[@]}).\nExiting." >&2
                             exit 1
                             ;;
-                        s)
-                            prepare_arch_verbosity "silent"
-                            ;;
-                        v)
-                            prepare_arch_verbosity "verbose"
-                            ;;
-                        b|i|f|p|P)
-                            # Allow and ignore
-                            ;;
+                        b|i|f|p)
+                            ;;  # Allow and ignore
                         *)
                             echo "Error: Invalid argument detected: '$simple_arg' in argument cluster $script_options[$i], found in -O options (${script_options[@]}).\nExitng." >&2
                             exit 1
@@ -312,7 +290,7 @@ if [[ $keep_7z_archive == "true" ]]; then
     echo "🔒 Source archive ${source_path:t} will be kept after conversion."
 else
     tput bold
-    printf "🗑️ Source archive ${source_path:t} will be deleted after conversion.\n"
+    echo "🗑️ Source archive ${source_path:t} will be deleted after conversion."
     tput sgr0
 fi
 
@@ -367,7 +345,7 @@ cancel_unarchiving() {
     # give them a moment; then be firm if needed
     sleep 0.2
     pkill -KILL -P $$ 2>/dev/null
-    rm -rf "$tmp_dir"
+    show_delete "temporary directory" "$tmp_dir"
     exit 1
 }
 
@@ -381,15 +359,15 @@ trap - INT TERM HUP
 
 if ! check_pipeline "${pipe_st[@]}"; then
     echo "Exiting."
-    rm -rf "$tmp_dir"
+    show_delete "temporary directory" "$tmp_dir"
     exit 1
 fi
 
 extracted_item="${${${source_path:t}:r}:r}"
 script_options+=(-O "$destination_path")
-if [[ $arch_verbosity != "silent" ]]; then
+if [[ $arch_verbosity_specified == "false" ]]; then
     [[ $check_file_sizes == "false" ]] && script_options+=(-f)
-    script_options+=(-P)
+    script_options+=(-v progress)
 fi
 
 if [[ $check_file_sizes == "true" ]]; then
@@ -403,20 +381,21 @@ echo "Creating ${destination_path:t}"
 
 cancel_archiving() {
     trap - INT TERM HUP
-    rm -rf "$tmp_dir"
+    show_delete "temporary directory" "$tmp_dir"
     exit 1
 }
 
 trap cancel_archiving INT TERM HUP
 
 # Re-pack data using xz
-../arch.zsh -A "$tmp_dir/$extracted_item" "${script_options[@]}"
+if ! ../arch.zsh -A "$tmp_dir/$extracted_item" "${script_options[@]}"; then
+    show_delete "temporary directory" "$tmp_dir"
+    exit 1
+fi
 
 trap - INT TERM HUP
 
-printf "Deleting temporary directory..."
-rm -rf "$tmp_dir"
-tput cr; tput el
+show_delete "temporary directory" "$tmp_dir"
 
 if [[ $check_file_sizes == "true" ]]; then
     printf "Determining destination size..."
@@ -426,8 +405,7 @@ if [[ $check_file_sizes == "true" ]]; then
 fi
 
 if [[ $keep_7z_archive == "false" ]]; then
-    printf "Deleting pre-existing ${source_path:t}..."
-    rm $source_path
+    show_delete "pre-existing ${source_path:t}" "$source_path"
     tput cr; tput el
 fi
 
@@ -467,7 +445,5 @@ fi
 # (if specified) Show file size comparison between 7z-archive and xz-archive
 if [[ $compare == "true" ]]; then
     printf "\n"
-    compare_sizes "${destination_path:t}" $destination_size_byte "${source_path:t}" $source_size_byte
+    compare_sizes "${source_path:t}" $source_size_byte "${destination_path:t}" $destination_size_byte
 fi
-
-echo "\nomgklolthxbye"

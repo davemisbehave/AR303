@@ -164,7 +164,7 @@ restore_stdout_progress() {
     exec >&3
 }
 
-silence_stdout_progress() {
+silence_stdout() {
     # Silence output to stdout if only progress should be shown
     exec > /dev/null
 }
@@ -227,33 +227,26 @@ prepare_p() {
 }
 
 prepare_verbosity() {
-    # Check if any special verbosity has been previously specified
-    if [[ $verbosity == "normal" ]]; then
-        # Set verbosity according to argument
-        verbosity="$1"
-    elif [[ $verbosity == "$1" ]]; then
-        # Do nothing if the selected verbosity has already been set
-        return
-    else
-        printf "Error: %s and %s are incompatible. Exiting\n" "$(verboption "$verbosity")" "$(verboption "$1")" >&2
-        exit 1
-    fi
+    # Set verbosity according to argument
+    verbosity="$1"
     
     case $verbosity in
-        verbose)
-            # No preparation necessary
+        normal)     # No preparation necessary
             ;;
         progress)
             # Save original stdout (FD 1) into FD 3
             exec 3>&1
             # Silence stdout
-            silence_stdout_progress
+            silence_stdout
+            prepare_F
             ;;
         silent)
             # Silence stdout
-            silence_stdout_progress
+            silence_stdout
             # Prevent file sizes from being calculated (they won't be shown in silent mode anyways)
             prepare_f
+            ;;
+        verbose)    # No preparation necessary
             ;;
         *)
             exit_invalid_vebosity "$verbosity"
@@ -265,6 +258,7 @@ prepare_verbosity() {
 
 operation="none"
 source_specified="false"
+verbosity_specified="false"
 source_paths=()
 destination_specified="false"
 dictionary_size=256
@@ -274,6 +268,7 @@ password_specified="false"
 threads_specified="false"
 perform_integrity_check="false"
 delete_before_compressing="false"
+script_options=()
 
 typeset -a pipe_status
 
@@ -287,39 +282,39 @@ while (( $# > 0 )); do
             ;;
 		-a|--archive|-A|--Archive)
             prepare_a $arg
+            script_options+=("$arg")
 			;;
 		-u|--unarchive|-U|--Unarchive)
             prepare_u $arg
+            script_options+=("$arg")
 			;;
         -b|--binary)
             prepare_b
+            script_options+=("$arg")
             ;;
         -i|--integrity)
             prepare_i
+            script_options+=("$arg")
             ;;
 		-f|--fast)
             prepare_f
+            script_options+=("$arg")
 			;;
         -F|--Fast)
             prepare_F
+            script_options+=("$arg")
             ;;
         -p|--prior)
             prepare_p
-            ;;
-        -P|--Progress)
-            prepare_verbosity "progress"
-            ;;
-        -s|--silent)
-            prepare_verbosity "silent"
-            ;;
-        -v|--verbose)
-            prepare_verbosity "verbose"
+            script_options+=("$arg")
             ;;
 		-e|--encrypt)
             prepare_e
+            script_options+=("$arg")
 			;;
 		-E|--Encrypt)
             not_yet_implemented "-E/--Encrypt option"
+            script_options+=("$arg")
             if [[ $encryption_specified == "false" ]]; then
                 if (( $# > 1 )); then
                     # Store next argument (password)
@@ -340,6 +335,7 @@ while (( $# > 0 )); do
 			fi
 			;;
 		-d|--dictionary)
+            script_options+=("$arg")
             if [[ $dictionary_size_specified == "false" ]]; then
                 if (( $# > 1 )); then
                     # Store next argument (dictionary size in MiB)
@@ -362,6 +358,7 @@ while (( $# > 0 )); do
 			fi
 			;;
         -t|--threads)
+            script_options+=("$arg")
             if [[ $threads_specified == "false" ]]; then
                 if (( $# > 1 )); then
                     # Store next argument (number of threads)
@@ -384,6 +381,7 @@ while (( $# > 0 )); do
             fi
             ;;
 		-o|--output)
+            script_options+=("$arg")
             if [[ $destination_specified == "false" ]]; then
                 if (( $# > 1 )); then
                     # Store next argument (destination path)
@@ -402,6 +400,7 @@ while (( $# > 0 )); do
 			fi
 			;;
         -O|--Output)
+            script_options+=("$arg")
             if [[ $destination_specified == "false" ]]; then
                 if (( $# > 1 )); then
                     if [[ "$2" == */* ]]; then
@@ -426,6 +425,25 @@ while (( $# > 0 )); do
                 exit 1
             fi
             ;;
+        -v|--verbosity)
+            script_options+=("$arg")
+            if [[ $verbosity_specified == "false" ]]; then
+                if (( $# > 1 )); then
+                    # Prepare specified verbosity level
+                    prepare_verbosity "$2"
+                    # Skip the next argument in the next iteration
+                    shift
+                    # Flag verbosity as specified
+                    verbosity_specified="true"
+                else
+                    echo "No verbosity level specified for -v/--verbosity option. Exiting." >&2
+                    exit 1
+                fi
+            else
+                echo "Verbosity specified multiple times. Exiting." >&2
+                exit 1
+            fi
+            ;;
         -*)
             simple_arguments=( ${(s::)${arg:1}} )
             for simple_arg in "${simple_arguments[@]}"; do
@@ -436,36 +454,35 @@ while (( $# > 0 )); do
                         ;;
                     a|A)
                         prepare_a $simple_arg
+                        script_options+=("-$simple_arg")
                         ;;
                     u|U)
                         prepare_u $simple_arg
+                        script_options+=("-$simple_arg")
                         ;;
                     b)
                         prepare_b
+                        script_options+=("-$simple_arg")
                         ;;
                     i)
                         prepare_i
+                        script_options+=("-$simple_arg")
                         ;;
                     f)
                         prepare_f
+                        script_options+=("-$simple_arg")
                         ;;
                     F)
                         prepare_F
+                        script_options+=("-$simple_arg")
                         ;;
                     p)
                         prepare_p
-                        ;;
-                    P)
-                        prepare_verbosity "progress"
+                        script_options+=("-$simple_arg")
                         ;;
                     e)
                         prepare_e
-                        ;;
-                    s)
-                        prepare_verbosity "silent"
-                        ;;
-                    v)
-                        prepare_verbosity "verbose"
+                        script_options+=("-$simple_arg")
                         ;;
                     *)
                         echo "Error: Invalid argument detected: $simple_arg in $arg.\nExitng." >&2
@@ -502,7 +519,7 @@ if [[ $operation != "archive" && $delete_before_compressing == "true" ]]; then
     exit 1
 fi
 
-check_dependency "xz" "pv"
+check_dependency "xz" "pv" || exit 1
 
 for (( item=1; item<=$#source_paths; item++ )); do
     if [[ ! -e "$source_paths[$item]" ]]; then
@@ -545,6 +562,8 @@ if [[ $#source_paths > 1 && $verbosity == "verbose" ]]; then
     done
 fi
 
+[[ $verbosity == "verbose" ]] && echo "Options:\t${script_options[@]}"
+
 [[ $dictionary_size_specified == "true" ]] && printf "Dictionary:\t%d MiB\n" $dictionary_size
 if [[ $threads_specified == "true" ]]; then
     if [[ $threads == "on" ]]; then
@@ -578,7 +597,7 @@ if [[ $check_file_sizes == "true" || $check_file_sizes == "source" ]]; then
     done
 	source_size=$(to_human $total_source_size_byte)
 	tput cr; tput el
-    [[ $verbosity == "progress" ]] && silence_stdout_progress
+    [[ $verbosity == "progress" ]] && silence_stdout
 	printf "\rSource Size:\t$source_size / $total_source_size_byte bytes\n"
 fi
 if [[ $operation == "archive" && -e $destination_path ]]; then
@@ -641,8 +660,7 @@ if [[ $operation == "archive" ]]; then
     [[ "$verbosity" == "progress" ]] && restore_stdout_progress
     
     if [[ $delete_before_compressing == "true" && -e $destination_path ]]; then
-        printf "Deleting pre-existing ${destination_path:t}..."
-        rm $destination_path
+        show_delete "pre-existing ${destination_path:t}" "$destination_path"
         tput cr; tput el
     fi
     
@@ -664,7 +682,7 @@ if [[ $operation == "archive" ]]; then
         sleep 0.2
         pkill -KILL -P $$ 2>/dev/null
         
-        rm -f -- "$tmp"
+        show_delete "temporary directory" "$tmp"
         exit 1
     }
 
@@ -680,7 +698,7 @@ if [[ $operation == "archive" ]]; then
     
     if ! check_pipeline "${pipe_status[@]}"; then
         echo "Exiting."
-        [[ -e "$tmp" ]] && rm -f -- "$tmp"
+        [[ -e "$tmp" ]] && show_delete "temporary directory" "$tmp"
         exit 1
     fi
     
@@ -701,7 +719,7 @@ if [[ $operation == "archive" ]]; then
         # Move one line up, clear and return carriage
         tput cuu1; tput cr; tput el
     fi
-else
+else    # Unarchive
     if [[ $perform_integrity_check == "true" ]]; then
         [[ $verbosity == "progress" ]] && restore_stdout_progress
         printf "Checking archive readability..."
@@ -763,6 +781,7 @@ else
         | tar --acls --xattrs -C "$destination_dir" -xvf - 2>"$list_tmp"
         
         if ! check_pipeline "${pipestatus[@]}"; then
+            rm -f -- "$list_tmp"
             # Clean up temp dirs?
             echo "Exiting." >&2
             exit 1
@@ -771,12 +790,12 @@ else
         rm -f -- "$list_tmp"
     done
     trap - INT TERM HUP
-    extracted_list=("${(@)extracted_list/#x /}")    # remove "x "
-    extracted_list=("${(@)extracted_list/#.\//}")   # remove leading "./"
-    extracted_list=("${(@)extracted_list/#/$destination_dir/}")  # prepend destination
+    extracted_list=("${(@)extracted_list/#x /}")                # remove "x "
+    extracted_list=("${(@)extracted_list/#.\//}")               # remove leading "./"
+    extracted_list=("${(@)extracted_list/#/$destination_dir/}") # prepend destination
 fi
 
-[[ $verbosity == "progress" ]] && silence_stdout_progress
+[[ $verbosity == "progress" ]] && silence_stdout
 
 if [[ $check_file_sizes == "true" && $verbosity != "progress" ]]; then
     if [[ $operation == "archive" ]]; then
@@ -837,5 +856,3 @@ elif (( minutes > 0 )); then
 else
     printf "${seconds}s\n"
 fi
-
-echo "klolthxbye"
