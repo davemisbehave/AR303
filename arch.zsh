@@ -204,24 +204,6 @@ prepare_i() {
     perform_integrity_check="true"
 }
 
-prepare_f() {
-    if [[ $check_file_sizes == "true" ]]; then
-        check_file_sizes="false"
-    else
-        echo "Error: -F and -f options both selected. Exiting." >&2
-        exit 1
-    fi
-}
-
-prepare_F() {
-    if [[ $check_file_sizes == "true" ]]; then
-        check_file_sizes="source"
-    else
-        echo "Error: -F and -f options both selected. Exiting." >&2
-        exit 1
-    fi
-}
-
 prepare_p() {
     delete_before_compressing="true"
 }
@@ -238,13 +220,13 @@ prepare_verbosity() {
             exec 3>&1
             # Silence stdout
             silence_stdout
-            prepare_F
+            check_file_sizes="source"
             ;;
         silent)
             # Silence stdout
             silence_stdout
             # Prevent file sizes from being calculated (they won't be shown in silent mode anyways)
-            prepare_f
+            check_file_sizes="none"
             ;;
         verbose)    # No preparation necessary
             ;;
@@ -259,6 +241,7 @@ prepare_verbosity() {
 operation="none"
 source_specified="false"
 verbosity_specified="false"
+size_check_specified="false"
 source_paths=()
 destination_specified="false"
 dictionary_size=256
@@ -294,14 +277,6 @@ while (( $# > 0 )); do
             ;;
         -i|--integrity)
             prepare_i
-            script_options+=("$arg")
-            ;;
-		-f|--fast)
-            prepare_f
-            script_options+=("$arg")
-			;;
-        -F|--Fast)
-            prepare_F
             script_options+=("$arg")
             ;;
         -p|--prior)
@@ -357,6 +332,29 @@ while (( $# > 0 )); do
 				exit 1
 			fi
 			;;
+        -s|--size)
+            script_options+=("$arg")
+            if [[ $size_check_specified == "false" ]]; then
+                if (( $# > 1 )); then
+                    if [[ "$2" != "all" && "$2" != "source" && "$2" != "none" ]]; then
+                        printf "Error: %s is not a valid size check level for option %s. Exiting.\n" "$dictionary_size" "$arg" >&2
+                        exit 1
+                    fi
+                    # Store next argument (size check level)
+                    check_file_sizes="$2"
+                    # Skip the next argument in the next iteration
+                    shift
+                    # Flag size check level as specified
+                    size_check_specified="true"
+                else
+                    echo "No size check level specified for -s/--size option. Exiting." >&2
+                    exit 1
+                fi
+            else
+                echo "-s/--size option specified multiple times. Exiting." >&2
+                exit 1
+            fi
+            ;;
         -t|--threads)
             script_options+=("$arg")
             if [[ $threads_specified == "false" ]]; then
@@ -586,7 +584,7 @@ else
     printf "Destination:\t%s/\n" "$destination_dir"
 fi
 
-if [[ $check_file_sizes == "true" || $check_file_sizes == "source" ]]; then
+if [[ $check_file_sizes == "all" || $check_file_sizes == "source" ]]; then
     [[ $verbosity == "progress" ]] && restore_stdout_progress
 	printf "Determining Source Size..."
     typeset -i total_source_size_byte=0
@@ -649,7 +647,7 @@ if [[ $operation == "archive" ]]; then
     tar_options=(--acls --xattrs)
     pv_options=()
     [[ $size_format == "decimal" ]] && pv_options+=(-k) # This needs to be specified before all other options
-    if [[ $check_file_sizes == "true" || $check_file_sizes == "source" ]]; then
+    if [[ $check_file_sizes == "all" || $check_file_sizes == "source" ]]; then
         pv_options+=("$pv_options_WITH_SIZE" -s "$total_source_size_byte")
     else
         pv_options+=("$pv_options_without_size")
@@ -741,7 +739,7 @@ else    # Unarchive
     # Set pv options for unarchiving
     pv_options=()
     [[ $size_format == "decimal" ]] && pv_options+=(-k)
-    if [[ $check_file_sizes == "true" || $check_file_sizes == "source" ]]; then
+    if [[ $check_file_sizes == "all" || $check_file_sizes == "source" ]]; then
         pv_options+=("$pv_options_WITH_SIZE")
     else
         pv_options+=("$pv_options_without_size")
@@ -773,7 +771,7 @@ else    # Unarchive
             exit 1
         fi
         pv_size=()
-        [[ ( $verbosity == "normal" || $verbosity == "verbose" ) && $check_file_sizes != "false" ]] \
+        [[ ( $verbosity == "normal" || $verbosity == "verbose" ) && $check_file_sizes != "none" ]] \
         && pv_size+=(-s "$source_size_byte[$item]")
         # Unarchive
         pv "${pv_options[@]}" "$pv_size[@]" -N "${source_paths[$item]:t}" < "$source_paths[$item]" \
@@ -797,7 +795,7 @@ fi
 
 [[ $verbosity == "progress" ]] && silence_stdout
 
-if [[ $check_file_sizes == "true" && $verbosity != "progress" ]]; then
+if [[ $check_file_sizes == "all" && $verbosity != "progress" ]]; then
     if [[ $operation == "archive" ]]; then
         tput cr; tput el
         printf "\rDetermining archive size..."
@@ -822,7 +820,7 @@ echo "Finish:\t\t$(date)"
 end_epoch=$(date +%s)
 
 # Show size difference between source and archive
-if [[ $check_file_sizes == "true" && $verbosity != "progress" ]]; then
+if [[ $check_file_sizes == "all" && $verbosity != "progress" ]]; then
     if [[ $operation == "archive" ]]; then
         destination_description="${destination_path:t}"
     else

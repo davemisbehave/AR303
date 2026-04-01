@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-# Usage: ./make-testfile.zsh <type> <size_in_mb> <output_file>
+# Usage: ./create_test_file.zsh <type> <size_in_mb> <output_file>
 # Types: zero | random | mixed
 
 set -e
@@ -27,8 +27,10 @@ case "$TYPE" in
         echo "Creating mixed compressibility file..."
         TMP1="$(mktemp)"
         TMP2="$(mktemp)"
-        dd if=/dev/zero of="$TMP1" bs=1m count=$((SIZE_MB / 2)) status=progress
-        dd if=/dev/urandom of="$TMP2" bs=1m count=$((SIZE_MB - SIZE_MB / 2)) status=progress
+        dd if=/dev/zero of="$TMP1" bs=1m count=$((SIZE_MB / 4)) status=progress
+        dd if=/dev/urandom of="$TMP2" bs=1m count=$((SIZE_MB - SIZE_MB / 4)) status=progress
+        dd if=/dev/zero of="$TMP1" bs=1m count=$((SIZE_MB / 4)) status=progress
+        dd if=/dev/urandom of="$TMP2" bs=1m count=$((SIZE_MB - SIZE_MB / 4)) status=progress
         cat "$TMP1" "$TMP2" > "$OUT"
         rm -f "$TMP1" "$TMP2"
         ;;

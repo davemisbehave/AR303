@@ -4,7 +4,7 @@
 verbosity="normal"
 confirmation_needed="true"
 size_format="decimal"
-check_file_sizes="true"
+check_file_sizes="all"
 
 ## Constants
 pv_options_WITH_SIZE="-F %N %b %t %r %a |%{bar-shaded}| %{progress-amount-only} %e"

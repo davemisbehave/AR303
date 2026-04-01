@@ -33,7 +33,7 @@ prepare_c() {
 }
 
 prepare_f() {
-    check_file_sizes="false"
+    check_file_sizes="none"
 }
 
 prepare_y() {
@@ -61,6 +61,7 @@ options_specified="false"
 keep_7z_archive="false"
 arch_verbosity="normal"
 arch_verbosity_specified="false"
+arch_size_check_specified="false"
 compare="false"
 operation="convert"
 script_options=()
@@ -196,7 +197,7 @@ while (( $# > 0 )); do
     shift
 done
 
-if [[ $check_file_sizes == "false" && $compare == "true" ]]; then
+if [[ $check_file_sizes == "none" && $compare == "true" ]]; then
     echo "Error: -c and -f options both selected. Exiting." >&2
     exit 1
 fi
@@ -221,11 +222,17 @@ if [[ $options_specified == "true" ]]; then
                 # Skip next argument (number of threads)
                 (( i++ ))
                 ;;
+            -s|--size)
+                # Skip next argument (size calculation parameter)
+                (( i++ ))
+                arch_size_check_specified="true"
+                ;;
             -b|--binary|-i|--integrity|-f|--fast|-p|--prior)
                 ;;  # Allow and ignore
             -v|--verbosity)
                 if [[ $arch_verbosity_specified == "true" ]]; then
-                    printf "Error: -v/--verbosity specified multiple times in -O/--Options options. Exiting.\n" >&2
+                    echo "Error: -v/--verbosity specified multiple times in -O/--Options options. Exiting." >&2
+                    exit 1
                 fi
                 prepare_arch_verbosity "${script_options[$(( i + 1 ))]}"
                 arch_verbosity_specified="true"
@@ -279,7 +286,7 @@ echo "Source:\t\t$source_path"
 echo "Scratch:\t$scratch_directory"
 echo "Destination:\t$destination_path"
 [[ $options_specified == "true" ]] && echo "Options:\t$script_options"
-if [[ $check_file_sizes == "true" ]]; then
+if [[ $check_file_sizes == "all" ]]; then
     printf "Determining Source Size..."
     source_size_byte=$(get_size $source_path)
     source_size=$(to_human $source_size_byte)
@@ -325,7 +332,7 @@ zip_options=(x -so -mmt=on)
 pv_options=()
 [[ $size_format == "decimal" ]] && pv_options+=(-k)
 pv_options+=(-N "${source_path:t}")
-if [[ $check_file_sizes == "true" ]]; then
+if [[ $check_file_sizes == "all" ]]; then
     pv_options+=(-s "$source_size_byte" "$pv_options_WITH_SIZE")
 else
     pv_options+=("$pv_options_without_size")
@@ -365,12 +372,10 @@ fi
 
 extracted_item="${${${source_path:t}:r}:r}"
 script_options+=(-O "$destination_path")
-if [[ $arch_verbosity_specified == "false" ]]; then
-    [[ $check_file_sizes == "false" ]] && script_options+=(-f)
-    script_options+=(-v progress)
-fi
+[[ $arch_verbosity_specified == "false" ]] && script_options+=(-v progress)
+[[ $check_file_sizes == "none" && $arch_size_check_specified == "false" ]] && script_options+=(-s none)
 
-if [[ $check_file_sizes == "true" ]]; then
+if [[ $check_file_sizes == "all" ]]; then
     printf "Determining unarchived size..."
     unarchived_size_byte=$(get_size "$tmp_dir")
     unarchived_size=$(to_human $unarchived_size_byte)
@@ -397,7 +402,7 @@ trap - INT TERM HUP
 
 show_delete "temporary directory" "$tmp_dir"
 
-if [[ $check_file_sizes == "true" ]]; then
+if [[ $check_file_sizes == "all" ]]; then
     printf "Determining destination size..."
     destination_size_byte=$(get_size $destination_path)
     destination_size=$(to_human $destination_size_byte)
@@ -437,7 +442,7 @@ else
 fi
 
 # (if specified) Show file size comparison between unarchived data and xz-archive
-if [[ $check_file_sizes == "true" ]]; then
+if [[ $check_file_sizes == "all" ]]; then
     printf "\n"
     compare_sizes "$extracted_item" $unarchived_size_byte "${destination_path:t}" $destination_size_byte
 fi
