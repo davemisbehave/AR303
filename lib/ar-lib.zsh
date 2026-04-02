@@ -10,6 +10,15 @@ check_file_sizes="all"
 pv_options_WITH_SIZE="-F %N %b %t %r %a |%{bar-shaded}| %{progress-amount-only} %e"
 pv_options_without_size="-trab"
 
+err() {
+    print -Pnru2 -- "%F{red}ERROR:%f "
+    printf -- "$1\n" "${@:2}" >&2
+}
+
+not_specified_err() { err "No %s specified for %s option. Exiting." "$1" "$2" }
+
+specified_multiple_err() { err "%s specified multiple times. Exiting." "$1" "$2" }
+
 get_size() {
     local target="$1"
     
@@ -22,7 +31,7 @@ get_size() {
         # -print0 / -0: handles filenames with spaces correctly
         find "$target" -type f -print0 | xargs -0 stat -f%z | awk '{s+=$1} END {print s+0}'
     else
-        echo "Error: $target is not a valid file or directory" >&2
+        err "%s is not a valid file or directory. Exiting." "$target"
         return 1
     fi
     return 0
@@ -191,7 +200,7 @@ check_dependency() {
                     brew_available+=(xz)
                     ;;
                 *)
-                    echo "Error: check_dependency encountered an unknown command ($argv[$n]).\nExiting." >&2
+                    err "check_dependency encountered an unknown command (%s).\nExiting." "${argv[$n]}"
                     exit 1
                     ;;
             esac
@@ -211,20 +220,20 @@ check_dependency() {
             fi
             printf "Updating Homebrew..."
             [[ $verbosity == "verbose" ]] && printf "\n"
-            run_brew update || { echo "Failed to update Homebrew." >&2; return 1 }
+            run_brew update || { err "Failed to update Homebrew."; return 1 }
             for (( n=1; n<=$#brew_package; n++ )); do
                 tput cr; tput el
                 printf "Installing executable %s (package %s)..." "${brew_available[$n]}" "${brew_package[$n]}"
                 [[ $verbosity == "verbose" ]] && printf "\n"
-                run_brew install ${brew_package[$n]} || { printf "Failed to install package %s for executable %s.\n" "${brew_package[$n]}" "${brew_available[$n]}" >&2; return 1 }
+                run_brew install ${brew_package[$n]} || { err "Failed to install package %s for executable %s.\n" "${brew_package[$n]}" "${brew_available[$n]}"; return 1 }
             done
             tput cr; tput el
         else
-            printf "The following executables need Homebrew in order to be installed: %s\n" "${brew_available[*]}"
+            err "The following executables need Homebrew in order to be installed: %s\n" "${brew_available[*]}"
             ret_val=1
         fi
     fi
-    (( ${#no_brew} > 0 )) && { printf "The following executables must be installed manually: %s\n" "${no_brew[*]}" >&2; ret_val=1 }
+    (( ${#no_brew} > 0 )) && { err "The following executables must be installed manually: %s\n" "${no_brew[*]}"; ret_val=1 }
     return $ret_val
 }
 
@@ -319,7 +328,7 @@ check_command() {
             esac
             ;;
         *)
-            echo "Unknown pipe command: $cmd"
+            err "Unknown pipe command: %s" "$cmd"
             ;;
     esac
 }
@@ -348,7 +357,7 @@ check_pipeline() {
             commands+="tar"
             ;;
         *)
-            echo "Error: Invalid operation: $operation" >&2
+            err "Invalid operation: %s" "$operation"
             return 1
             ;;
     esac
@@ -356,7 +365,8 @@ check_pipeline() {
     for pipe_command in {1..$#commands}
     do
         if [[ ${statuses[$pipe_command]} -ne 0 ]]; then
-            printf "\rError: Command ${commands[$pipe_command]} in pipeline failed with exit code ${statuses[$pipe_command]}: $(check_command ${commands[$pipe_command]} ${statuses[$pipe_command]})\n" >&2
+            printf "\r"
+            err "Command ${commands[$pipe_command]} in pipeline failed with exit code ${statuses[$pipe_command]}: $(check_command ${commands[$pipe_command]} ${statuses[$pipe_command]})\n"
             exit_code=1
         fi
     done
@@ -365,7 +375,7 @@ check_pipeline() {
 }
 
 exit_invalid_vebosity() {
-    echo "Error: Invalid verbosity ($1). Exiting" >&2
+    err "Invalid verbosity ($1). Exiting."
     exit 1
 }
 

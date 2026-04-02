@@ -17,7 +17,7 @@ show_arch_help() {
 check_directory_existence() {
     if [[ -e "$1" ]]; then
         if [[ "$(object_type "$1")" != "directory" ]]; then
-            echo "Error: Specified $2 not a directory ($1).\nExiting." >&2
+            err "Specified %s not a directory (%s).\nExiting." "$2" "$1"
             exit 1
         fi
     else
@@ -100,15 +100,15 @@ while (( $# > 0 )); do
                     scratch_specified="true"
                     
                     if ! check_directory_existence "$scratch_directory" "scratch directory"; then
-                        echo "Error: scratch directory $scratch_directory does not exist.\nExiting." >&2
+                        err "Scratch directory %s does not exist.\nExiting." "$scratch_directory"
                         exit 1
                     fi
                 else
-                    echo "No scratch directory specified for -s/--scratch option. Exiting." >&2
+                    not_specified_err "scratch directory" "$arg"
                     exit 1
                 fi
             else
-                echo "Scratch directory specified multiple times. Exiting." >&2
+                specified_multiple_err "Scratch directory"
                 exit 1
             fi
             ;;
@@ -124,11 +124,11 @@ while (( $# > 0 )); do
                     
                     check_directory_existence "$destination_dir" "destination directory"
                 else
-                    echo "No destination folder specified for -o/--output option. Exiting." >&2
+                    not_specified_err "destination folder" "$arg"
                     exit 1
                 fi
             else
-                echo "Destination specified multiple times. Exiting." >&2
+                specified_multiple_err "Destination"
                 exit 1
             fi
             ;;
@@ -144,11 +144,11 @@ while (( $# > 0 )); do
                     # Flag options as specified
                     options_specified="true"
                 else
-                    echo "No options specified for -o/--options option. Exiting." >&2
+                    not_specified_err "options" "$arg"
                     exit 1
                 fi
             else
-                echo "Options specified multiple times. Exiting." >&2
+                specified_multiple_err "Options"
                 exit 1
             fi
             ;;
@@ -177,14 +177,14 @@ while (( $# > 0 )); do
                             prepare_y
                             ;;
                         *)
-                            echo "Error: Invalid argument detected: $simple_arg in $arg.\nExitng." >&2
+                            err "Invalid argument detected: %s in %s.\nExitng." "$simple_arg" "$arg"
                             exit 1
                             ;;
                     esac
                 done
             else
                 if [[ $source_specified == "true" ]]; then
-                    echo "Error: Multiple sources specified. Exiting." >&2
+                    err "Multiple sources specified. Exiting."
                     exit 1
                 fi
                 source_path="$1"
@@ -198,7 +198,7 @@ while (( $# > 0 )); do
 done
 
 if [[ $check_file_sizes == "none" && $compare == "true" ]]; then
-    echo "Error: -c and -f options both selected. Exiting." >&2
+    err "-c and -f options both selected. Exiting."
     exit 1
 fi
 
@@ -211,7 +211,7 @@ if [[ $options_specified == "true" ]]; then
                 show_arch_help
                 ;;
             -a|--archive|-A|--Archive|-u|--unarchive|-U|--Unarchive|-e|--encrypt|-E|--Encrypt|-o|--output|-O|--Output)
-                echo "Error: $script_options[$i] specified in -O options ($script_options).\nExiting." >&2
+                err "%s specified in -O options (%s).\nExiting." "${script_options[$i]}" "$script_options"
                 exit 1
                 ;;
             -d|--dictionary)
@@ -231,7 +231,7 @@ if [[ $options_specified == "true" ]]; then
                 ;;  # Allow and ignore
             -v|--verbosity)
                 if [[ $arch_verbosity_specified == "true" ]]; then
-                    echo "Error: -v/--verbosity specified multiple times in -O/--Options options. Exiting." >&2
+                    err "-v/--verbosity specified multiple times in -O/--Options options. Exiting."
                     exit 1
                 fi
                 prepare_arch_verbosity "${script_options[$(( i + 1 ))]}"
@@ -246,20 +246,20 @@ if [[ $options_specified == "true" ]]; then
                             show_arch_help
                             ;;
                         a|A|u|U|e)
-                            echo "Error: '$simple_arg' specified in argument cluster $script_options[$i], found in -O options (${script_options[@]}).\nExiting." >&2
+                            err "'%s' specified in argument cluster %s, found in -O options (${script_options[@]}).\nExiting." "$simple_arg" "${script_options[$i]}"
                             exit 1
                             ;;
                         b|i|f|p)
                             ;;  # Allow and ignore
                         *)
-                            echo "Error: Invalid argument detected: '$simple_arg' in argument cluster $script_options[$i], found in -O options (${script_options[@]}).\nExitng." >&2
+                            err "Invalid argument detected: '%s' in argument cluster %s, found in -O options (%s).\nExitng." "$simple_arg" "${script_options[$i]}" "${script_options[@]}"
                             exit 1
                             ;;
                     esac
                 done
                 ;;
             *)
-                echo "Error: Invalid argument detected: '$script_options[$i]' in -O options (${script_options[@]}).\nExitng." >&2
+                err "Invalid argument detected: '%s' in -O options (%s).\nExitng." "${script_options[$i]}" "${script_options[@]}"
                 exit 1
                 ;;
         esac
@@ -304,7 +304,7 @@ fi
 if [[ $confirmation_needed == "true" ]]; then
     read "?Confirm with 'y': " confirmation
     [[ $confirmation == "y" ]] || {
-        echo "User confirmation negative. Exiting." >&2
+        echo "User confirmation negative. Exiting."
         exit 1
     }
 fi
@@ -320,7 +320,8 @@ zip_options=(l)
 printf "Checking source archive readability..."
 if ! 7zz "${zip_options[@]}" "$source_path" > /dev/null 2>&1; then
     tput cr; tput el
-    printf "\rArchive ${source_path:t} could not be read. Exiting.\n" >&2
+    printf("\r")
+    err "Archive %s could not be read. Exiting.\n" "${source_path:t}"
     exit 1
 fi
 tput cr; tput el

@@ -170,7 +170,7 @@ silence_stdout() {
 }
 
 not_yet_implemented() {
-    echo "Error: $1 not yet implemented. Exiting." >&2
+    err "%s not yet implemented. Exiting." "$1"
     exit 1
 }
 
@@ -179,7 +179,7 @@ prepare_a() {
     if [[ $operation == "none" ]]; then
         operation="archive"
     else
-        echo "Archive and unarchive options both selected. Exiting." >&2
+        err "Archive and unarchive options both selected. Exiting."
         exit 1
     fi
 }
@@ -189,7 +189,7 @@ prepare_u() {
     if [[ $operation == "none" ]]; then
         operation="unarchive"
     else
-        echo "Archive and unarchive options both selected. Exiting." >&2
+        err "Archive and unarchive options both selected. Exiting."
         exit 1
     fi
 }
@@ -301,11 +301,11 @@ while (( $# > 0 )); do
 					# Flag password as specified
 					password_specified="true"
                 else
-                    echo "No password specified for -E/--Encrypt option. Exiting." >&2
+                    not_specified_err "password" "$arg"
                     exit 1
 				fi
 			else
-				echo "Encryption specified multiple times. Exiting." >&2
+                specified_multiple_err "Encryption"
 				exit 1
 			fi
 			;;
@@ -316,7 +316,7 @@ while (( $# > 0 )); do
                     # Store next argument (dictionary size in MiB)
 					dictionary_size="$2"
                     if [[ ! "$dictionary_size" =~ ^[1-9][0-9]*$ ]]; then
-                        printf "Error: %s is not a valid dictionary size. Exiting.\n" $dictionary_size >&2
+                        err "%s is not a valid dictionary size. Exiting.\n" $dictionary_size
                         exit 1
                     fi
                     # Skip the next argument in the next iteration
@@ -324,11 +324,11 @@ while (( $# > 0 )); do
 					# Flag dictionary size as specified
 					dictionary_size_specified="true"
                 else
-                    echo "No dictionary size specified for -d/--dictionary option. Exiting." >&2
+                    not_specified_err "dictionary size" "$arg"
                     exit 1
 				fi
 			else
-				echo "-d/--dictionary option specified multiple times. Exiting." >&2
+                specified_multiple_err "-d/--dictionary"
 				exit 1
 			fi
 			;;
@@ -337,7 +337,7 @@ while (( $# > 0 )); do
             if [[ $size_check_specified == "false" ]]; then
                 if (( $# > 1 )); then
                     if [[ "$2" != "all" && "$2" != "source" && "$2" != "none" ]]; then
-                        printf "Error: %s is not a valid size check level for option %s. Exiting.\n" "$dictionary_size" "$arg" >&2
+                        err "%s is not a valid size check level for option %s. Exiting.\n" "$dictionary_size" "$arg"
                         exit 1
                     fi
                     # Store next argument (size check level)
@@ -347,11 +347,11 @@ while (( $# > 0 )); do
                     # Flag size check level as specified
                     size_check_specified="true"
                 else
-                    echo "No size check level specified for -s/--size option. Exiting." >&2
+                    not_specified_err "size check level" "$arg"
                     exit 1
                 fi
             else
-                echo "-s/--size option specified multiple times. Exiting." >&2
+                specified_multiple_err "-s/--size"
                 exit 1
             fi
             ;;
@@ -362,7 +362,7 @@ while (( $# > 0 )); do
                     # Store next argument (number of threads)
                     threads="$2"
                     if [[ ! "$threads" =~ ^[1-9][0-9]*$ ]]; then
-                        printf "Error: %s is not a valid amount of threads. Exiting.\n" $threads >&2
+                        err "%s is not a valid amount of threads. Exiting.\n" $threads
                         exit 1
                     fi
                     # Skip the next argument in the next iteration
@@ -370,11 +370,11 @@ while (( $# > 0 )); do
                     # Flag number of threads as specified
                     threads_specified="true"
                 else
-                    echo "No amount of threads specified for -t/--threads option. Exiting." >&2
+                    not_specified_err "amount of threads" "$arg"
                     exit 1
                 fi
             else
-                echo "-t/--threads option specified multiple times. Exiting." >&2
+                specified_multiple_err "-t/--threads"
                 exit 1
             fi
             ;;
@@ -389,11 +389,11 @@ while (( $# > 0 )); do
 					# Flag destination as specified
                     destination_specified="folder"
                 else
-                    echo "No destination folder specified for -o/--output option. Exiting." >&2
+                    not_specified_err "destination folder" "$arg"
                     exit 1
 				fi
 			else
-				echo "Destination specified multiple times. Exiting." >&2
+                specified_multiple_err "Destination"
 				exit 1
 			fi
 			;;
@@ -415,11 +415,11 @@ while (( $# > 0 )); do
                     # Skip the next argument in the next iteration
                     shift
                 else
-                    echo "No destination file specified for -O/--Output option. Exiting." >&2
+                    not_specified_err "destination file" "$arg"
                     exit 1
                 fi
             else
-                echo "Destination specified multiple times. Exiting." >&2
+                specified_multiple_err "Destination"
                 exit 1
             fi
             ;;
@@ -434,11 +434,11 @@ while (( $# > 0 )); do
                     # Flag verbosity as specified
                     verbosity_specified="true"
                 else
-                    echo "No verbosity level specified for -v/--verbosity option. Exiting." >&2
+                    not_specified_err "verbosity level" "$arg"
                     exit 1
                 fi
             else
-                echo "Verbosity specified multiple times. Exiting." >&2
+                specified_multiple_err "Verbosity"
                 exit 1
             fi
             ;;
@@ -483,7 +483,7 @@ while (( $# > 0 )); do
                         script_options+=("-$simple_arg")
                         ;;
                     *)
-                        echo "Error: Invalid argument detected: $simple_arg in $arg.\nExitng." >&2
+                        err "Invalid argument detected: %s in %s.\nExitng." "$simple_arg" "$arg"
                         exit 1
                         ;;
                 esac
@@ -500,20 +500,17 @@ while (( $# > 0 )); do
 done
 
 if [[ $operation == "none" ]]; then
-	echo "No operation was specified. Use -a/--archive or -u/--unarchive. Run $0 -h for help." >&2
-	echo "Exiting." >&2
+	echo "No operation was specified. Run %s -h for help.\nExiting." "$0"
 	exit 1
 fi
 
 if [[ $operation == "unarchive" && ( $destination_specified == "file" || $destination_specified == "path_and_file" ) ]]; then
-    echo "Output file name cannot be specified with -O/--Output for an unarchiving operation." >&2
-    echo "Try using the -o/-output option to specify a folder to unarchive to." >&2
-    echo "Exiting." >&2
+    err "Output file name cannot be specified with -O/--Output for an unarchiving operation.\nTry using the -o/-output option to specify a folder to unarchive to.\nExiting."
     exit 1
 fi
 
 if [[ $operation != "archive" && $delete_before_compressing == "true" ]]; then
-    echo "-p/--prior option only applies to archiving. Exiting." >&2
+    err "-p/--prior option only applies to archiving. Exiting."
     exit 1
 fi
 
@@ -521,7 +518,7 @@ check_dependency "xz" "pv" || exit 1
 
 for (( item=1; item<=$#source_paths; item++ )); do
     if [[ ! -e "$source_paths[$item]" ]]; then
-        echo "$source_paths[$item] does not exist. Exiting." >&2
+        err "%s does not exist. Exiting." "${source_paths[$item]}"
         exit 1
     fi
 done
@@ -603,14 +600,14 @@ if [[ $operation == "archive" && -e $destination_path ]]; then
 	if [[ $destination_type == "file" ]]; then
 		echo "Warning: ${destination_path:t} exists and will be overwritten."
 	else
-		echo "Warning: ${destination_path:t} exists and is not a file ($destination_type). Exiting." >&2
+		err "%s exists and is not a file (is %s). Exiting." "${destination_path:t}" "$destination_type"
 		exit 1
 	fi
 fi
 if [[ -e $destination_dir && $operation == "unarchive" ]]; then
 	destination_type="$(object_type $destination_dir)"
 	if [[ $destination_type != "directory" ]]; then
-		echo "Warning: ${destination_dir:t} exists and is not a folder (is $destination_type). Exiting." >&2
+		err "%s exists and is not a folder (is %s). Exiting." "${destination_dir:t}" "$destination_type"
 		exit 1
 	fi
 fi
@@ -622,7 +619,7 @@ fi
 if [[ $confirmation_needed == "true" ]]; then
 	read "?Confirm with 'y': " confirmation
 	[[ $confirmation == "y" ]] || {
-		echo "User confirmation negative. Exiting." >&2
+		echo "User confirmation negative. Exiting."
 		exit 1
 	}
 fi
@@ -708,7 +705,8 @@ if [[ $operation == "archive" ]]; then
         
         # Check archive integrity
         if ! check_archive_integrity "$destination_path"; then
-            printf "\rArchive ${destination_path:t} integrity could not be verified. Exiting.\n" >&2
+            printf "\n"
+            err "\rArchive %s integrity could not be verified. Exiting.\n" "${destination_path:t}"
             exit 1
         fi
         
@@ -723,8 +721,8 @@ else    # Unarchive
         printf "Checking archive readability..."
         for (( item=1; item<=$#source_paths; item++ )); do
             if ! check_archive_integrity "$source_paths[$item]"; then
-                tput cr; tput el
-                printf "\rArchive ${$source_paths[$item]:t} could not be read. Exiting.\n" >&2
+                printf "\n"
+                err "\rArchive ${$source_paths[$item]:t} could not be read. Exiting.\n"
                 exit 1
             fi
         done
@@ -767,7 +765,7 @@ else    # Unarchive
     for (( item=1; item<=$#source_paths; item++ )); do
         # Create temporary file for tar to write output files names to
         if ! list_tmp=$(mktemp); then
-            echo "Error: could not create temporary file list_tmp. Exiting." &>2
+            err "Could not create temporary file list_tmp. Exiting."
             exit 1
         fi
         pv_size=()
@@ -781,7 +779,7 @@ else    # Unarchive
         if ! check_pipeline "${pipestatus[@]}"; then
             rm -f -- "$list_tmp"
             # Clean up temp dirs?
-            echo "Exiting." >&2
+            err "Exiting."
             exit 1
         fi
         extracted_list+=("${(@f)$(<"$list_tmp")}")
