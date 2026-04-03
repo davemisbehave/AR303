@@ -312,7 +312,7 @@ check_command() {
                     echo "No error (Success)"
                     ;;
                 1)
-                    if [[ -v operation && $operation == "archive"]]; then
+                    if [[ -v operation && $operation == "archive" ]]; then
                         echo "Warning (some files differ, were busy, or couldn't be read, but the archive was still created)"
                     else
                         echo "Warning"
