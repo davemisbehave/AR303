@@ -586,10 +586,12 @@ if [[ $check_file_sizes == "all" || $check_file_sizes == "source" ]]; then
 	printf "Determining Source Size..."
     typeset -i total_source_size_byte=0
     source_size_byte=()
+    pre_source_size_check_time=$EPOCHREALTIME
     for (( item=1; item<=$#source_paths; item++ )); do
         source_size_byte[$item]=$(get_size "$source_paths[$item]")
         (( total_source_size_byte += $source_size_byte[$item] ))
     done
+    post_source_size_check_time=$EPOCHREALTIME
 	source_size=$(to_human $total_source_size_byte)
 	tput cr; tput el
     [[ $verbosity == "progress" ]] && silence_stdout
@@ -598,7 +600,8 @@ fi
 if [[ $operation == "archive" && -e $destination_path ]]; then
 	destination_type="$(object_type $destination_path)"
 	if [[ $destination_type == "file" ]]; then
-		echo "Warning: ${destination_path:t} exists and will be overwritten."
+        print -Pnru2 -- "%F{yellow}Warning:%f"
+		echo " ${destination_path:t} exists and will be overwritten."
 	else
 		err "%s exists and is not a file (is %s). Exiting." "${destination_path:t}" "$destination_type"
 		exit 1
@@ -626,14 +629,14 @@ fi
 
 # Display starting time
 echo "\nStart:\t\t$(date)"
+# Record start time (epoch seconds)
+start_time=$EPOCHREALTIME
 
 if [[ $operation == "archive" ]]; then
     mkdir -p "${destination_dir:a}"
 else
     mkdir -p "$destination_dir"
 fi
-# Record start time (epoch seconds)
-start_epoch=$(date +%s)
 
 if [[ $operation == "archive" ]]; then
     xz_options=(
@@ -683,11 +686,15 @@ if [[ $operation == "archive" ]]; then
 
     trap cancel_archiving INT TERM HUP
 
+    pre_operation_time=$EPOCHREALTIME
+
     tar "${tar_options[@]}" -cf - "${tar_names[@]}" 2>/dev/null \
     | pv "${pv_options[@]}" \
     | xz "${xz_options[@]}" >| "$tmp"
     
     pipe_status=( "${pipestatus[@]}" )
+    
+    post_operation_time=$EPOCHREALTIME
 
     trap - INT TERM HUP
     
@@ -696,19 +703,22 @@ if [[ $operation == "archive" ]]; then
         [[ -e "$tmp" ]] && show_delete "temporary directory" "$tmp"
         exit 1
     fi
-    
+    pre_move_time=$EPOCHREALTIME
     mv -f -- "$tmp" "$destination_path"
+    post_move_time=$EPOCHREALTIME
     
     if [[ $perform_integrity_check == "true" ]]; then
         tput cr; tput el
         echo "Performing archive integrity check..."
         
+        pre_integrity_time=$EPOCHREALTIME
         # Check archive integrity
         if ! check_archive_integrity "$destination_path"; then
             printf "\n"
             err "\rArchive %s integrity could not be verified. Exiting.\n" "${destination_path:t}"
             exit 1
         fi
+        post_integrity_time=$EPOCHREALTIME
         
         # Clear current line and return carriage
         tput cr; tput el
@@ -719,6 +729,7 @@ else    # Unarchive
     if [[ $perform_integrity_check == "true" ]]; then
         [[ $verbosity == "progress" ]] && restore_stdout_progress
         printf "Checking archive readability..."
+        pre_integrity_time=$EPOCHREALTIME
         for (( item=1; item<=$#source_paths; item++ )); do
             if ! check_archive_integrity "$source_paths[$item]"; then
                 printf "\n"
@@ -726,6 +737,7 @@ else    # Unarchive
                 exit 1
             fi
         done
+        post_integrity_time=$EPOCHREALTIME
     fi
 
 	tput cr; tput el
@@ -762,6 +774,8 @@ else    # Unarchive
 
     trap cancel_unarchiving INT TERM HUP
     
+    pre_operation_time=$EPOCHREALTIME
+    
     for (( item=1; item<=$#source_paths; item++ )); do
         # Create temporary file for tar to write output files names to
         if ! list_tmp=$(mktemp); then
@@ -785,6 +799,7 @@ else    # Unarchive
         extracted_list+=("${(@f)$(<"$list_tmp")}")
         rm -f -- "$list_tmp"
     done
+    post_operation_time=$EPOCHREALTIME
     trap - INT TERM HUP
     extracted_list=("${(@)extracted_list/#x /}")                # remove "x "
     extracted_list=("${(@)extracted_list/#.\//}")               # remove leading "./"
@@ -797,14 +812,18 @@ if [[ $check_file_sizes == "all" && $verbosity != "progress" ]]; then
     if [[ $operation == "archive" ]]; then
         tput cr; tput el
         printf "\rDetermining archive size..."
+        pre_destination_size_check_time=$EPOCHREALTIME
         destination_size_byte=$(get_size "$destination_path")
+        post_destination_size_check_time=$EPOCHREALTIME
     else
         tput cr; tput el
         printf "\rDetermining destination size..."
         destination_size_byte=0
+        pre_destination_size_check_time=$EPOCHREALTIME
         for (( item=1; item<=$#extracted_list; item++ )); do
             [[ $(object_type "$extracted_list[$item]") != "directory" ]] && (( destination_size_byte += $(get_size "$extracted_list[$item]") ))
         done
+        post_destination_size_check_time=$EPOCHREALTIME
     fi
     
     destination_size=$(to_human $destination_size_byte)
@@ -815,7 +834,7 @@ fi
 echo "Finish:\t\t$(date)"
 
 # Record end time (epoch seconds)
-end_epoch=$(date +%s)
+end_time=$EPOCHREALTIME
 
 # Show size difference between source and archive
 if [[ $check_file_sizes == "all" && $verbosity != "progress" ]]; then
@@ -832,23 +851,60 @@ if [[ $check_file_sizes == "all" && $verbosity != "progress" ]]; then
     compare_sizes "$source_description" $total_source_size_byte "$destination_description" $destination_size_byte
 fi
 
-# Calculate elapsed time
-elapsed=$((end_epoch - start_epoch))
-days=$((elapsed / 86400))
-remainder=$((elapsed % 86400))
-hours=$((remainder / 3600))
-remainder=$((remainder % 3600))
-minutes=$((remainder / 60))
-seconds=$((remainder % 60))
+printf '\n'
+time_descriptions=()
+time_values=()
+time_rates=()
 
-# Print formatted duration
-printf "\nElapsed time:\t"
-if (( days > 0 )); then
-    printf "${days}d ${hours}h ${minutes}m ${seconds}s\n"
-elif (( hours > 0 )); then
-    printf "${hours}h ${minutes}m ${seconds}s\n"
-elif (( minutes > 0 )); then
-    printf "${minutes}m ${seconds}s\n"
-else
-    printf "${seconds}s\n"
+if [[ $verbosity == "verbose" && -v pre_source_size_check_time ]]; then
+    time_descriptions+=("Source size check")
+    time_values+=("$(print_elapsed_time $pre_source_size_check_time $post_source_size_check_time)")
+    time_rates+=("NULL")
 fi
+
+if [[ $verbosity == "verbose" && $operation == "unarchive" && -v pre_integrity_time ]]; then
+    time_descriptions+=("Readability check")
+    time_values+=("$(print_elapsed_time $pre_integrity_time $post_integrity_time)")
+    time_rates+=("$(print_data_rate $pre_integrity_time $post_integrity_time $source_size_byte)")
+fi
+
+if [[ $verbosity == "verbose" ]]; then
+    time_descriptions+=("${(C)operation}")
+    time_values+=("$(print_elapsed_time $pre_operation_time $post_operation_time)")
+    time_rates+=("$(print_data_rate $pre_operation_time $post_operation_time $source_size_byte)")
+fi
+
+if [[ $verbosity == "verbose" && $operation == "archive" ]]; then
+    time_descriptions+=("Move")
+    time_values+=("$(print_elapsed_time $pre_move_time $post_move_time)")
+    time_rates+=("NULL")
+fi
+
+if [[ $verbosity == "verbose" && $operation == "archive" && -v pre_integrity_time ]]; then
+    time_descriptions+=("Integrity check")
+    time_values+=("$(print_elapsed_time $pre_integrity_time $post_integrity_time)")
+    time_rates+=("$(print_data_rate $pre_integrity_time $post_integrity_time $destination_size_byte)")
+fi
+
+if [[ $verbosity == "verbose" && -v pre_destination_size_check_time ]]; then
+    time_descriptions+=("Destination size check")
+    time_values+=("$(print_elapsed_time $pre_destination_size_check_time $post_destination_size_check_time)")
+    time_rates+=("NULL")
+fi
+
+time_descriptions+=("Total")
+time_values+=("$(print_elapsed_time $start_time $end_time)")
+time_rates+=("NULL")
+
+longest_description=$(longest_strl "${time_descriptions[@]}")
+longest_values=$(longest_strl "${time_values[@]}")
+longest_rates=$(longest_strl "${(@)time_rates:#NULL}")
+
+for (( item=1; item<=$#time_descriptions; item++ )); do
+    printf "%-${longest_description}s: " "${time_descriptions[$item]}"
+    printf "%+${longest_values}s" "${time_values[$item]}"
+    if [[ $time_rates[$item] != "NULL" ]]; then
+        printf " @ %+${longest_rates}s" "${time_rates[$item]}"
+    fi
+    printf '\n'
+done

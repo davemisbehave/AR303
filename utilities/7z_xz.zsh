@@ -313,7 +313,7 @@ fi
 echo "\nStart:\t\t$(date)"
 
 # Record start time (epoch seconds)
-start_epoch=$(date +%s)
+start_time=$EPOCHREALTIME
 
 # Check source archive readability
 zip_options=(l)
@@ -419,37 +419,20 @@ fi
 echo "Finish:\t\t$(date)"
 
 # Record end time (epoch seconds)
-end_epoch=$(date +%s)
+end_time=$EPOCHREALTIME
 
-# Calculate elapsed time
-elapsed=$((end_epoch - start_epoch))
-days=$((elapsed / 86400))
-remainder=$((elapsed % 86400))
-hours=$((remainder / 3600))
-remainder=$((remainder % 3600))
-minutes=$((remainder / 60))
-seconds=$((remainder % 60))
-
-# Print formatted duration
-printf "\nElapsed time:\t"
-if (( days > 0 )); then
-    printf "${days}d ${hours}h ${minutes}m ${seconds}s\n"
-elif (( hours > 0 )); then
-    printf "${hours}h ${minutes}m ${seconds}s\n"
-elif (( minutes > 0 )); then
-    printf "${minutes}m ${seconds}s\n"
-else
-    printf "${seconds}s\n"
-fi
+printf "\nElapsed time: "
+print_elprint_elapsed_time start_time end_time
+printf '\n'
 
 # (if specified) Show file size comparison between unarchived data and xz-archive
 if [[ $check_file_sizes == "all" ]]; then
-    printf "\n"
+    printf '\n'
     compare_sizes "$extracted_item" $unarchived_size_byte "${destination_path:t}" $destination_size_byte
 fi
 
 # (if specified) Show file size comparison between 7z-archive and xz-archive
 if [[ $compare == "true" ]]; then
-    printf "\n"
+    printf '\n'
     compare_sizes "${source_path:t}" $source_size_byte "${destination_path:t}" $destination_size_byte
 fi

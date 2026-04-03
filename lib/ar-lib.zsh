@@ -1,5 +1,7 @@
 #!/usr/bin/env zsh
 
+zmodload zsh/datetime
+
 ## Variables
 verbosity="normal"
 confirmation_needed="true"
@@ -70,6 +72,18 @@ to_human() {
     '
 }
 
+longest_strl() {
+    local max=0
+    local str len
+
+    for str in "$@"; do
+        len=${#str}
+        (( len > max )) && max=$len
+    done
+
+    printf "%d" "$max"
+}
+
 compare_sizes() {
     # First item (A)
     local name_A="$1"
@@ -101,19 +115,16 @@ compare_sizes() {
     local item_sizes=( "$bytes_A" "$bytes_B" )
     local item_human_number=( "${human_A[1]}" "${human_B[1]}" )
     local item_human_unit=( "${human_A[2]}" "${human_B[2]}" )
-    local longest_item_name_length=0
-    local longest_size_length=0
+    local longest_item_name_length
+    local longest_size_length
     local longest_human_number=0
     local longest_human_unit=0
     local n
-    for (( n=1; n<=$#item_names; n++ )); do
-        (( ${#item_names[$n]} > longest_item_name_length )) && longest_item_name_length=${#item_names[$n]}
-        (( ${#item_sizes[$n]} > longest_size_length )) && longest_size_length=${#item_sizes[$n]}
-        (( ${#item_human_number[$n]} > longest_human_number )) && longest_human_number=${#item_human_number[$n]}
-        (( ${#item_human_unit[$n]} > longest_human_unit )) && longest_human_unit=${#item_human_unit[$n]}
-    done
-    (( ${#abs_difference_human[1]} > longest_human_number )) && longest_human_number=${#abs_difference_human[1]}
-    (( ${#abs_difference_human[2]} > longest_human_unit )) && longest_human_unit=${#abs_difference_human[2]}
+    
+    longest_item_name_length=$(longest_strl "${item_names[@]}")
+    longest_size_length=$(longest_strl "${item_sizes[@]}")
+    longest_human_number=$(longest_strl "${item_human_number[@]}" "${abs_difference_human[1]}")
+    longest_human_unit=$(longest_strl "${item_human_unit[@]}" "${abs_difference_human[2]}")
     
     for (( n=1; n<=$#item_names; n++ )); do
         printf "%-${longest_item_name_length}s : %+${longest_human_number}s %+${longest_human_unit}s (%+${longest_size_length}s bytes)\n" "${item_names[$n]}" "${item_human_number[$n]}" "${item_human_unit[$n]}" "${item_sizes[$n]}"
@@ -387,4 +398,86 @@ show_delete() {
     printf "Deleting %s..." "$1"
     rm -rf -- "$2"
     tput cr; tput el
+}
+
+# Usage: print_elapsed_time <start time> <stop time>
+# <start time> and <stop time> should come from $EPOCHREALTIME
+print_elapsed_time() {
+    local start=$1
+    local stop=$2
+    
+    # calculate elapsed time
+    local elapsed=$(( stop - start ))
+    (( elapsed < 0 )) && elapsed=0
+
+    # integer part for d/h/m/s breakdown
+    local elapsed_int=${elapsed%.*}
+
+    # split into d/h/m/s
+    local days=$(( elapsed_int / 86400 ))
+    local remainder=$(( elapsed_int % 86400 ))
+    local hours=$(( remainder / 3600 ))
+    local remainder=$(( remainder % 3600 ))
+    local minutes=$(( remainder / 60 ))
+    local seconds=$(( remainder % 60 ))
+
+    if (( days > 0 )); then # seconds, minutes, hours and days
+        printf "%dd %dh %dm %ds" "$days" "$hours" "$minutes" "$seconds"
+    elif (( hours > 0 )); then  # seconds, minutes and hours
+        printf "%dh %dm %ds" "$hours" "$minutes" "$seconds"
+    elif (( minutes > 0 )); then    # seconds and minutes
+        printf "%dm %ds" "$minutes" "$seconds"
+    elif (( elapsed >= 1 )); then # seconds
+        printf "%.3fs" "$elapsed"
+    else    # sub-second
+        printf "%.3fs" "$elapsed"
+    fi
+}
+
+# Usage: print_data_rate <start> <end> <bytes>
+# <start time> and <stop time> should come from $EPOCHREALTIME
+print_data_rate() {
+    local start=$1
+    local stop=$2
+    local size_in_bytes=$3
+
+    local elapsed=$(( stop - start ))
+    (( elapsed <= 0 )) && return    # avoid division by zero / refuse to print infinite or negative data rates
+
+    local rate=$(( size_in_bytes / elapsed ))
+    local data_rate
+
+    if [[ $size_format == "binary" ]]; then
+        local -a units=(B/s KiB/s MiB/s GiB/s TiB/s PiB/s)
+        local i=1
+        local value=$rate
+
+        while (( value >= 1024 && i < ${#units[@]} )); do
+            value=$(( value / 1024.0 ))
+            (( i++ ))
+        done
+
+        if (( i == 1 )); then
+            printf -v data_rate "%d %s" "$value" "$units[i]"
+        else
+            printf -v data_rate "%.1f %s" "$value" "$units[i]"
+        fi
+    else
+        local -a units=(B/s KB/s MB/s GB/s TB/s PB/s)
+        local i=1
+        local value=$rate
+
+        while (( value >= 1000 && i < ${#units[@]} )); do
+            value=$(( value / 1000.0 ))
+            (( i++ ))
+        done
+
+        if (( i == 1 )); then
+            printf -v data_rate "%d %s" "$value" "$units[i]"
+        else
+            printf -v data_rate "%.1f %s" "$value" "$units[i]"
+        fi
+    fi
+
+    printf "%s" "$data_rate"
 }
