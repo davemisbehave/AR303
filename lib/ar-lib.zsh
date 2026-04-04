@@ -9,7 +9,8 @@ size_format="decimal"
 check_file_sizes="all"
 
 ## Constants
-pv_options_WITH_SIZE="-F %N %b %t %r %a |%{bar-shaded}| %{progress-amount-only} %e"
+archive_pv_options_with_size="-F %{sgr:bold}%N%{sgr:reset} %b %t %r %{sgr:bold}%a%{sgr:reset} %{sgr:red}|%{bar-shaded}|%{sgr:reset} %{sgr:bold}%{progress-amount-only}%{sgr:reset} %e"
+unarchive_pv_options_with_size="-F %{sgr:bold}%N%{sgr:reset} %b %t %r %{sgr:bold}%a%{sgr:reset} %{sgr:blue}|%{bar-shaded}|%{sgr:reset} %{sgr:bold}%{progress-amount-only}%{sgr:reset} %e"
 pv_options_without_size="-trab"
 
 err() {

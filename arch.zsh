@@ -600,7 +600,7 @@ fi
 if [[ $operation == "archive" && -e $destination_path ]]; then
 	destination_type="$(object_type $destination_path)"
 	if [[ $destination_type == "file" ]]; then
-        print -Pnru2 -- "%F{yellow}Warning:%f"
+        print -Pnru1 -- "%F{yellow}Warning:%f"
 		echo " ${destination_path:t} exists and will be overwritten."
 	else
 		err "%s exists and is not a file (is %s). Exiting." "${destination_path:t}" "$destination_type"
@@ -616,7 +616,8 @@ if [[ -e $destination_dir && $operation == "unarchive" ]]; then
 fi
 
 if [[ $encryption_specified == "true" && $password_specified == "false" && ! -t 0 && ! -e /dev/tty ]]; then
-  echo "Warning: No TTY available for secure password prompt."
+    print -Pnru1 -- "%F{yellow}Warning:%f"
+    printf " No TTY available for secure password prompt.\n"
 fi
 
 if [[ $confirmation_needed == "true" ]]; then
@@ -648,7 +649,7 @@ if [[ $operation == "archive" ]]; then
     pv_options=()
     [[ $size_format == "decimal" ]] && pv_options+=(-k) # This needs to be specified before all other options
     if [[ $check_file_sizes == "all" || $check_file_sizes == "source" ]]; then
-        pv_options+=("$pv_options_WITH_SIZE" -s "$total_source_size_byte")
+        pv_options+=("$archive_pv_options_with_size" -s "$total_source_size_byte")
     else
         pv_options+=("$pv_options_without_size")
     fi
@@ -750,7 +751,7 @@ else    # Unarchive
     pv_options=()
     [[ $size_format == "decimal" ]] && pv_options+=(-k)
     if [[ $check_file_sizes == "all" || $check_file_sizes == "source" ]]; then
-        pv_options+=("$pv_options_WITH_SIZE")
+        pv_options+=("$unarchive_pv_options_with_size")
     else
         pv_options+=("$pv_options_without_size")
     fi
@@ -865,13 +866,21 @@ fi
 if [[ $verbosity == "verbose" && $operation == "unarchive" && -v pre_integrity_time ]]; then
     time_descriptions+=("Readability check")
     time_values+=("$(print_elapsed_time $pre_integrity_time $post_integrity_time)")
-    time_rates+=("$(print_data_rate $pre_integrity_time $post_integrity_time $source_size_byte)")
+    if [[ -v source_size_byte ]]; then
+        time_rates+=("$(print_data_rate $pre_integrity_time $post_integrity_time $source_size_byte)")
+    else
+        time_rates+=("NULL")
+    fi
 fi
 
 if [[ $verbosity == "verbose" ]]; then
     time_descriptions+=("${(C)operation}")
     time_values+=("$(print_elapsed_time $pre_operation_time $post_operation_time)")
-    time_rates+=("$(print_data_rate $pre_operation_time $post_operation_time $source_size_byte)")
+    if [[ -v source_size_byte ]]; then
+        time_rates+=("$(print_data_rate $pre_operation_time $post_operation_time $source_size_byte)")
+    else
+        time_rates+=("NULL")
+    fi
 fi
 
 if [[ $verbosity == "verbose" && $operation == "archive" ]]; then
@@ -883,7 +892,11 @@ fi
 if [[ $verbosity == "verbose" && $operation == "archive" && -v pre_integrity_time ]]; then
     time_descriptions+=("Integrity check")
     time_values+=("$(print_elapsed_time $pre_integrity_time $post_integrity_time)")
-    time_rates+=("$(print_data_rate $pre_integrity_time $post_integrity_time $destination_size_byte)")
+    if [[ -v destination_size_byte ]]; then
+        time_rates+=("$(print_data_rate $pre_integrity_time $post_integrity_time $destination_size_byte)")
+    else
+        time_rates+=("NULL")
+    fi
 fi
 
 if [[ $verbosity == "verbose" && -v pre_destination_size_check_time ]]; then
@@ -893,6 +906,7 @@ if [[ $verbosity == "verbose" && -v pre_destination_size_check_time ]]; then
 fi
 
 time_descriptions+=("Total")
+[[ -v pre_source_size_check_time ]] && (( start_time -= ( post_source_size_check_time - pre_source_size_check_time ) ))
 time_values+=("$(print_elapsed_time $start_time $end_time)")
 time_rates+=("NULL")
 
